@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Company Verification Agent</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <main class="container">
+        <section class="card">
+            <h1>Company Verification Agent</h1>
+            <p class="muted">
+                Run a preliminary company check using local tools.
+                The result is not final until human review.
+            </p>
+
+            <form action="/run-check" method="post" class="form">
+                <label>
+                    Company name
+                    <input
+                        type="text"
+                        name="company_name"
+                        placeholder="Servochron"
+                        required
+                    >
+                </label>
+
+                <label>
+                    Country
+                    <input
+                        type="text"
+                        name="country"
+                        placeholder="USA"
+                        required
+                    >
+                </label>
+
+                <label>
+                    Domain / website, optional
+                    <input
+                        type="text"
+                        name="domain"
+                        placeholder="example.com"
+                    >
+                </label>
+
+                <button type="submit">Run check</button>
+            </form>
+
+            <div class="links">
+                <a href="/docs">Open API docs</a>
+                <a href="/company-check">View JSON checks</a>
+            </div>
+        </section>
+    </main>
+</body>
+</html>

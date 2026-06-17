@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Company Check Result</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <main class="container">
+        <section class="card">
+            <div class="top-row">
+                <h1>Company Check Result</h1>
+                <a href="/" class="secondary-link">New check</a>
+            </div>
+
+```
+        {% if result is none %}
+            <div class="alert">
+                Check {{ check_id }} was not found.
+            </div>
+        {% else %}
+
+            <div class="summary-grid">
+                <div>
+                    <span class="label">Check ID</span>
+                    <strong>{{ result.check_id }}</strong>
+                </div>
+
+                <div>
+                    <span class="label">Company</span>
+                    <strong>{{ result.company.name }}</strong>
+                </div>
+
+                <div>
+                    <span class="label">Country</span>
+                    <strong>{{ result.company.country }}</strong>
+                </div>
+
+                <div>
+                    <span class="label">Domain</span>
+                    <strong>{{ result.company.domain or "Not provided" }}</strong>
+                </div>
+            </div>
+
+            <section class="section">
+                <h2>Preliminary Risk Score</h2>
+
+                <div class="risk-box risk-{{ result.risk.preliminary_level.value }}">
+                    <span class="risk-score">{{ result.risk.preliminary_score }}</span>
+                    <span class="risk-level">{{ result.risk.preliminary_level.value | upper }}</span>
+                </div>
+
+                <p class="muted">
+                    Human review status:
+                    <strong>{{ result.risk.human_review_status.value }}</strong>
+                </p>
+
+                {% if result.risk.final_score is not none %}
+                    <p class="muted">
+                        Final score:
+                        <strong>{{ result.risk.final_score }}</strong>
+                    </p>
+                {% endif %}
+
+                {% if result.risk.final_level is not none %}
+                    <p class="muted">
+                        Final level:
+                        <strong>{{ result.risk.final_level.value }}</strong>
+                    </p>
+                {% endif %}
+            </section>
+
+            <section class="section">
+                <h2>Executive Summary</h2>
+
+                <p>{{ result.summary.overall_assessment }}</p>
+
+                <p class="muted">
+                    Confidence:
+                    <strong>{{ result.summary.confidence.value }}</strong>
+                </p>
+
+                <p class="muted">
+                    Created at:
+                    <strong>{{ result.created_at }}</strong>
+                </p>
+            </section>
+
+            <section class="section">
+                <h2>Sources</h2>
+
+                {% if result.sources %}
+                    <ul>
+                        {% for source in result.sources %}
+                            <li>
+                                <strong>{{ source.title }}</strong>
+
+                                {% if source.is_mock %}
+                                    <span class="mock-badge">MOCK</span>
+                                {% endif %}
+
+                                <br>
+
+                                <code>{{ source.url }}</code>
+
+                                <p>{{ source.snippet }}</p>
+
+                                <p class="muted">
+                                    Type:
+                                    <strong>{{ source.source_type.value }}</strong>,
+                                    confidence:
+                                    <strong>{{ source.confidence.value }}</strong>,
+                                    retrieved at:
+                                    <strong>{{ source.retrieved_at }}</strong>
+                                </p>
+                            </li>
+                        {% endfor %}
+                    </ul>
+                {% else %}
+                    <p class="muted">No sources found.</p>
+                {% endif %}
+            </section>
+
+            <section class="section">
+                <h2>Domain / DNS Findings</h2>
+
+                <table>
+                    <tr>
+                        <th>Status</th>
+                        <td>{{ result.domain_dns.status.value }}</td>
+                    </tr>
+
+                    <tr>
+                        <th>Domain</th>
+                        <td>{{ result.domain_dns.domain or "Not provided" }}</td>
+                    </tr>
+
+                    <tr>
+                        <th>Has A record</th>
+                        <td>{{ result.domain_dns.has_a_record }}</td>
+                    </tr>
+
+                    <tr>
+                        <th>Has MX record</th>
+                        <td>{{ result.domain_dns.has_mx_record }}</td>
+                    </tr>
+
+                    <tr>
+                        <th>Has TXT record</th>
+                        <td>{{ result.domain_dns.has_txt_record }}</td>
+                    </tr>
+
+                    <tr>
+                        <th>HTTPS available</th>
+                        <td>{{ result.domain_dns.https_available }}</td>
+                    </tr>
+                </table>
+
+                <h3>Warnings</h3>
+
+                {% if result.domain_dns.warnings %}
+                    <ul>
+                        {% for warning in result.domain_dns.warnings %}
+                            <li>{{ warning }}</li>
+                        {% endfor %}
+                    </ul>
+                {% else %}
+                    <p class="muted">No DNS warnings.</p>
+                {% endif %}
+            </section>
+
+            <section class="section">
+                <h2>Risk Factors</h2>
+
+                {% if result.risk.factors %}
+                    <ul>
+                        {% for factor in result.risk.factors %}
+                            <li>
+                                <strong>{{ factor.name }}</strong>
+                                <span class="impact">({{ factor.impact }})</span>
+                                — {{ factor.explanation }}
+                            </li>
+                        {% endfor %}
+                    </ul>
+                {% else %}
+                    <p class="muted">No risk factors.</p>
+                {% endif %}
+            </section>
+
+            <section class="section">
+                <h2>Unknowns and Data Gaps</h2>
+
+                {% if result.unknowns %}
+                    <ul>
+                        {% for item in result.unknowns %}
+                            <li>{{ item }}</li>
+                        {% endfor %}
+                    </ul>
+                {% else %}
+                    <p class="muted">No unknowns listed.</p>
+                {% endif %}
+            </section>
+
+            <section class="section">
+                <h2>Manual Verification Checklist</h2>
+
+                {% if result.manual_verification_checklist %}
+                    <ul>
+                        {% for item in result.manual_verification_checklist %}
+                            <li>{{ item }}</li>
+                        {% endfor %}
+                    </ul>
+                {% else %}
+                    <p class="muted">No manual verification tasks listed.</p>
+                {% endif %}
+            </section>
+
+            <section class="section">
+                <h2>Output Files</h2>
+
+                <p>
+                    JSON:
+                    <code>outputs/json/company_check_{{ result.check_id }}.json</code>
+                </p>
+
+                <p>
+                    Markdown:
+                    <code>outputs/reports/company_check_{{ result.check_id }}.md</code>
+                </p>
+            </section>
+
+            <section class="section">
+                <h2>Disclaimer</h2>
+
+                <p class="muted">
+                    This report is based on limited open-source information.
+                    Mock sources are not verified evidence.
+                    The preliminary risk score must not be treated as a final legal,
+                    financial, or compliance decision.
+                </p>
+            </section>
+
+        {% endif %}
+    </section>
+</main>
+```
+
+</body>
+</html>
