@@ -29,6 +29,17 @@ def valid_company_check_data():
             "https_available": False,
             "warnings": [],
         },
+        "registry_check": {
+            "company_name": "Servochron",
+            "country": "USA",
+            "status": "not_found",
+            "registry_found": False,
+            "registry_name": None,
+            "source_url": None,
+            "confidence": "low",
+            "notes": [],
+            "is_mock": True,
+        },
         "risk": {
             "preliminary_score": 45,
             "preliminary_level": "medium",

@@ -7,6 +7,7 @@ from typing import Optional
 
 from app.agents.domain_agent import DomainAgent
 from app.agents.human_review_agent import HumanReviewAgent
+from app.agents.registry_agent import RegistryAgent
 from app.agents.report_agent import ReportAgent
 from app.agents.risk_agent import RiskAgent
 from app.agents.web_search_agent import WebSearchAgent
@@ -20,12 +21,33 @@ from app.schemas.company_check import (
     SummaryInfo,
 )
 from app.schemas.risk import RiskScoreInput
+from app.schemas.registry import RegistryCheckResult
 from app.schemas.source import ConfidenceLevel
 from app.tools.web_search import count_negative_snippets, extract_suspicious_keywords
 
 
 def _new_check_id() -> int:
     return int(datetime.now(timezone.utc).timestamp() * 1000)
+
+
+def _build_unknowns(registry_check: RegistryCheckResult) -> list[str]:
+    unknowns = [
+        "Current web search results are mock results and not verified evidence.",
+        "Final risk score requires human review.",
+    ]
+
+    if not registry_check.registry_found:
+        unknowns.insert(
+            0,
+            "No official company registry result was confirmed.",
+        )
+    elif registry_check.is_mock:
+        unknowns.insert(
+            0,
+            "Registry result is based on mock data and must be verified manually.",
+        )
+
+    return unknowns
 
 
 class CompanyCheckAgent:
@@ -35,12 +57,14 @@ class CompanyCheckAgent:
         self,
         web_search_agent: WebSearchAgent | None = None,
         domain_agent: DomainAgent | None = None,
+        registry_agent: RegistryAgent | None = None,
         risk_agent: RiskAgent | None = None,
         report_agent: ReportAgent | None = None,
         human_review_agent: HumanReviewAgent | None = None,
     ) -> None:
         self.web_search_agent = web_search_agent or WebSearchAgent()
         self.domain_agent = domain_agent or DomainAgent()
+        self.registry_agent = registry_agent or RegistryAgent()
         self.risk_agent = risk_agent or RiskAgent()
         self.report_agent = report_agent or ReportAgent()
         self.human_review_agent = human_review_agent or HumanReviewAgent()
@@ -67,6 +91,11 @@ class CompanyCheckAgent:
             country=request.country,
         )
 
+        registry_check = self.registry_agent.run(
+            company_name=request.company_name,
+            country=request.country,
+        )
+
         negative_snippets_count = count_negative_snippets(sources)
         suspicious_keywords = extract_suspicious_keywords(sources)
 
@@ -76,7 +105,7 @@ class CompanyCheckAgent:
             has_mx_record=dns_info.has_mx_record,
             https_available=dns_info.https_available,
             negative_snippets_count=negative_snippets_count,
-            registry_found=False,
+            registry_found=registry_check.registry_found,
             multiple_sources_confirm=False,
             suspicious_keywords_found=suspicious_keywords,
             source_count=len(sources),
@@ -103,6 +132,7 @@ class CompanyCheckAgent:
             ),
             sources=sources,
             domain_dns=dns_info,
+            registry_check=registry_check,
             risk=RiskInfo(
                 preliminary_score=risk_result.score,
                 preliminary_level=risk_result.level,
@@ -121,11 +151,7 @@ class CompanyCheckAgent:
                 "Check legal disputes and complaints.",
                 "Replace mock web search with real source verification.",
             ],
-            unknowns=[
-                "No official company registry result was confirmed.",
-                "Current web search results are mock results and not verified evidence.",
-                "Final risk score requires human review.",
-            ],
+            unknowns=_build_unknowns(registry_check),
             created_at=datetime.now(timezone.utc),
         )
 

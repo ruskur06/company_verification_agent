@@ -73,6 +73,27 @@ def _format_list_markdown(items: list[str]) -> str:
     return "\n".join(f"- {item}" for item in items)
 
 
+def _format_registry_markdown(result: CompanyCheckResult) -> str:
+    registry = result.registry_check
+    source_url = registry.source_url or "Not available"
+    mock_label = "yes" if registry.is_mock else "no"
+
+    return "\n".join(
+        [
+            f"- Status: {registry.status.value}",
+            f"- Registry found: {registry.registry_found}",
+            f"- Registry name: {registry.registry_name or 'Not available'}",
+            f"- Source URL: {source_url}",
+            f"- Confidence: {registry.confidence.value}",
+            f"- Mock: {mock_label}",
+            "",
+            "Notes:",
+            "",
+            _format_list_markdown(registry.notes),
+        ]
+    )
+
+
 class ReportAgent:
     """Builds Markdown reports and persists strict JSON output."""
 
@@ -111,25 +132,29 @@ Warnings:
 
 {_format_warnings_markdown(result.domain_dns.warnings)}
 
-## 5. Preliminary Risk Score
+## 5. Registry Check
+
+{_format_registry_markdown(result)}
+
+## 6. Preliminary Risk Score
 
 - Score: {result.risk.preliminary_score}
 - Level: {result.risk.preliminary_level.value}
 - Requires human review: {result.risk.requires_human_review}
 
-## 6. Risk Factors
+## 7. Risk Factors
 
 {_format_risk_factors_markdown(result)}
 
-## 7. Unknowns and Data Gaps
+## 8. Unknowns and Data Gaps
 
 {_format_list_markdown(result.unknowns)}
 
-## 8. Manual Verification Checklist
+## 9. Manual Verification Checklist
 
 {_format_list_markdown(result.manual_verification_checklist)}
 
-## 9. Human Review
+## 10. Human Review
 
 Status: {result.risk.human_review_status.value}
 
@@ -137,7 +162,7 @@ Final score: {result.risk.final_score if result.risk.final_score is not None els
 
 Final level: {result.risk.final_level.value if result.risk.final_level else "Pending"}
 
-## 10. Disclaimer
+## 11. Disclaimer
 
 This report is based on limited open-source information and should not be treated as a final legal, financial, or compliance decision.
 """

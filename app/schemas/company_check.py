@@ -6,6 +6,7 @@ from typing import Optional
 
 from pydantic import BaseModel, field_validator
 
+from app.schemas.registry import RegistryCheckResult
 from app.schemas.source import SourceResult, ConfidenceLevel
 from app.schemas.risk import RiskFactor, RiskLevel, HumanReviewStatus
 
@@ -77,6 +78,7 @@ class CompanyCheckResult(BaseModel):
     summary: SummaryInfo
     sources: list[SourceResult]
     domain_dns: DomainDnsInfo
+    registry_check: RegistryCheckResult
     risk: RiskInfo
     manual_verification_checklist: list[str]
     unknowns: list[str]
