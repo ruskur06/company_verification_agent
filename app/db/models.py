@@ -1,83 +1,67 @@
-"""SQLAlchemy ORM models."""
+"""SQLAlchemy ORM models for company check persistence."""
+
+from __future__ import annotations
 
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import String, Text, Integer, Boolean, DateTime, ForeignKey, func
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy import Boolean, DateTime, Integer, String, Text, func
+from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.database import Base
 
 
-class CompanyCheck(Base):
-    __tablename__ = "company_checks"
+class CompanyCheckRecord(Base):
+    __tablename__ = "company_check_records"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    check_id: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
     company_name: Mapped[str] = mapped_column(String(255), nullable=False)
     country: Mapped[str] = mapped_column(String(100), nullable=False)
     domain: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    status: Mapped[str] = mapped_column(String(50), default="pending")
-
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=func.now(), onupdate=func.now())
-
-    final_json_path: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
-    markdown_report_path: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
-
-    preliminary_risk_score: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    preliminary_risk_level: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
-    final_risk_score: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    final_risk_level: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
-
+    risk_score: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    risk_level: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     human_review_status: Mapped[str] = mapped_column(String(50), default="pending")
-    human_review_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-
-    # Relationships
-    sources: Mapped[list["Source"]] = relationship("Source", back_populates="check", cascade="all, delete-orphan")
-    tool_calls: Mapped[list["ToolCall"]] = relationship("ToolCall", back_populates="check", cascade="all, delete-orphan")
-    reports: Mapped[list["Report"]] = relationship("Report", back_populates="check", cascade="all, delete-orphan")
-
-
-class Source(Base):
-    __tablename__ = "sources"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    check_id: Mapped[int] = mapped_column(Integer, ForeignKey("company_checks.id"), nullable=False)
-    title: Mapped[str] = mapped_column(String(500), nullable=False)
-    url: Mapped[str] = mapped_column(String(1000), nullable=False)
-    snippet: Mapped[str] = mapped_column(Text, nullable=False)
-    source_type: Mapped[str] = mapped_column(String(50), default="search_result")
-    retrieved_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
-    is_mock: Mapped[bool] = mapped_column(Boolean, default=False)
-    confidence: Mapped[str] = mapped_column(String(20), default="low")
-
-    check: Mapped["CompanyCheck"] = relationship("CompanyCheck", back_populates="sources")
+    json_report_path: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    markdown_report_path: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    registry_check_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    domain_check_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
 
 
-class ToolCall(Base):
-    __tablename__ = "tool_calls"
+class ToolCallRecord(Base):
+    __tablename__ = "tool_call_records"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    check_id: Mapped[int] = mapped_column(Integer, ForeignKey("company_checks.id"), nullable=False)
+    check_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
     tool_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    status: Mapped[str] = mapped_column(String(50), default="completed")
     input_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     output_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    success: Mapped[bool] = mapped_column(Boolean, default=True)
-    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    started_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
-    finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
-
-    check: Mapped["CompanyCheck"] = relationship("CompanyCheck", back_populates="tool_calls")
-
-
-class Report(Base):
-    __tablename__ = "reports"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    check_id: Mapped[int] = mapped_column(Integer, ForeignKey("company_checks.id"), nullable=False)
-    report_type: Mapped[str] = mapped_column(String(50), nullable=False)  # markdown | json
-    content: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    file_path: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
 
-    check: Mapped["CompanyCheck"] = relationship("CompanyCheck", back_populates="reports")
+
+class SourceRecord(Base):
+    __tablename__ = "source_records"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    check_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    title: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    url: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True)
+    snippet: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    source_type: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    confidence: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    is_mock: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
+
+class ReportRecord(Base):
+    __tablename__ = "report_records"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    check_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    json_path: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    markdown_path: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    json_content: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    markdown_content: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())

@@ -6,15 +6,37 @@ Thin facade over the agent layer. Handles persistence helpers used by CLI/API.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from app.agents.company_check_agent import CompanyCheckAgent
 from app.agents.report_agent import ReportAgent, json_path_for_check
+from app.db.repositories import (
+    get_company_check_by_id as get_saved_company_check,
+    list_company_checks as list_saved_company_checks,
+    save_company_check,
+)
 from app.schemas.company_check import CompanyCheckResponse, CompanyCheckResult
 from app.schemas.risk import HumanReviewStatus, RiskLevel
 
 _report_agent = ReportAgent()
 _check_agent = CompanyCheckAgent(report_agent=_report_agent)
+
+
+def _persist_company_check(response: CompanyCheckResponse) -> None:
+    """Save company check result to PostgreSQL without breaking file-based flow."""
+    if response.json_result is None:
+        return
+
+    payload = response.json_result.model_dump(mode="json")
+    payload["check_id"] = str(response.check_id)
+    payload["json_report_path"] = str(json_path_for_check(response.check_id))
+    payload["markdown_report_path"] = response.markdown_report_path
+
+    try:
+        save_company_check(payload)
+    except Exception:
+        # File-based MVP flow must keep working even if DB is unavailable.
+        pass
 
 
 def run_company_check(
@@ -23,11 +45,13 @@ def run_company_check(
     domain: Optional[str] = None,
 ) -> CompanyCheckResponse:
     """Run a preliminary company check."""
-    return _check_agent.run(
+    response = _check_agent.run(
         company_name=company_name,
         country=country,
         domain=domain,
     )
+    _persist_company_check(response)
+    return response
 
 
 def load_company_check(check_id: int) -> CompanyCheckResult | None:
@@ -55,6 +79,16 @@ def list_company_checks() -> list[CompanyCheckResult]:
             continue
 
     return results
+
+
+def list_checks_from_db(limit: int = 20) -> list[dict[str, Any]]:
+    """List recent company checks stored in PostgreSQL."""
+    return list_saved_company_checks(limit=limit)
+
+
+def get_check_from_db(check_id: str) -> dict[str, Any] | None:
+    """Load one company check record from PostgreSQL."""
+    return get_saved_company_check(check_id)
 
 
 def apply_human_review(

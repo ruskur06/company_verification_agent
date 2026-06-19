@@ -8,6 +8,7 @@ from app.schemas.company_check import CompanyCheckRequest, CompanyCheckResponse,
 from app.schemas.risk import HumanReviewInput
 from app.services.company_check_service import (
     apply_human_review,
+    list_checks_from_db,
     list_company_checks,
     load_company_check,
     run_company_check,
@@ -33,6 +34,12 @@ def create_company_check(request: CompanyCheckRequest) -> CompanyCheckResponse:
         )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/checks")
+def get_saved_checks() -> list[dict]:
+    """List recent company checks stored in PostgreSQL."""
+    return list_checks_from_db(limit=20)
 
 
 @router.get("/company-check", response_model=list[CompanyCheckResult])

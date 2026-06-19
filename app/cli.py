@@ -8,6 +8,7 @@ import typer
 
 from app.services.company_check_service import (
     apply_human_review,
+    list_checks_from_db,
     list_company_checks,
     load_company_check,
     run_company_check,
@@ -59,8 +60,8 @@ def check_company(
 
 @app.command("list-checks")
 def list_checks_command() -> None:
-    """List saved company checks."""
-    checks = list_company_checks()
+    """List saved company checks from PostgreSQL."""
+    checks = list_checks_from_db(limit=20)
 
     if not checks:
         typer.echo("No company checks found.")
@@ -68,13 +69,14 @@ def list_checks_command() -> None:
 
     for check in checks:
         typer.echo(
-            f"{check.check_id} | "
-            f"{check.company.name} | "
-            f"{check.company.country} | "
-            f"{check.company.domain or '-'} | "
-            f"risk={check.risk.preliminary_level.value} | "
-            f"review={check.risk.human_review_status.value} | "
-            f"{check.created_at}"
+            f"{check['check_id']} | "
+            f"{check['company_name']} | "
+            f"{check['country']} | "
+            f"{check.get('domain') or '-'} | "
+            f"risk_score={check.get('risk_score')} | "
+            f"risk_level={check.get('risk_level')} | "
+            f"review={check.get('human_review_status')} | "
+            f"{check.get('created_at')}"
         )
 
 

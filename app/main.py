@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from pathlib import Path
 from urllib.parse import parse_qs
 
@@ -11,6 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from app.api.routes import router
+from app.db.database import init_db
 from app.services.company_check_service import load_company_check, run_company_check
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -18,10 +20,18 @@ WEB_DIR = BASE_DIR / "web"
 TEMPLATES_DIR = WEB_DIR / "templates"
 STATIC_DIR = WEB_DIR / "static"
 
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    init_db()
+    yield
+
+
 app = FastAPI(
     title="Company Verification Agent",
     description="Simple AI-assisted company verification MVP.",
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 app.include_router(router)

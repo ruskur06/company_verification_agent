@@ -21,7 +21,9 @@ class Settings(BaseSettings):
     web_search_provider: str = "mock"
 
     # Database
-    database_url: str = "sqlite:///./company_agent.db"
+    database_url: str = (
+        "postgresql+psycopg2://company_user:company_pass@localhost:5432/company_verification"
+    )
 
     # App
     app_env: str = "development"

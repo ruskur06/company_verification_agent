@@ -15,6 +15,7 @@ env/
 
 # Outputs / generated files
 outputs/
+data/
 *.db
 *.sqlite
 *.sqlite3

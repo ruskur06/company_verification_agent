@@ -1,0 +1,15 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: company_verification_postgres
+    environment:
+      POSTGRES_DB: company_verification
+      POSTGRES_USER: company_user
+      POSTGRES_PASSWORD: company_pass
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:
