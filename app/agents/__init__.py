@@ -3,6 +3,7 @@
 from app.agents.company_check_agent import CompanyCheckAgent
 from app.agents.domain_agent import DomainAgent
 from app.agents.human_review_agent import HumanReviewAgent
+from app.agents.name_normalizer_agent import NameNormalizer
 from app.agents.registry_agent import RegistryAgent
 from app.agents.report_agent import ReportAgent
 from app.agents.risk_agent import RiskAgent
@@ -12,6 +13,7 @@ __all__ = [
     "CompanyCheckAgent",
     "DomainAgent",
     "HumanReviewAgent",
+    "NameNormalizer",
     "RegistryAgent",
     "ReportAgent",
     "RiskAgent",
