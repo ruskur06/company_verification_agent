@@ -80,8 +80,9 @@ def test_company_check_calls_name_normalizer_and_uses_normalized_names():
     )
 
     name_normalizer.run.assert_called_once()
+    expected_search_names = name_normalizer.run.return_value.search_names
     registry_agent.run.assert_called_once_with(
-        company_name="Servochron",
+        search_names=expected_search_names,
         country="USA",
     )
     web_search_agent.run.assert_called_once_with(
