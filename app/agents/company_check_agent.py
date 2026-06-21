@@ -111,7 +111,7 @@ class CompanyCheckAgent:
         )
 
         registry_check = self.registry_agent.run(
-            company_name=search_name,
+            search_names=name_normalization.search_names,
             country=request.country,
         )
 

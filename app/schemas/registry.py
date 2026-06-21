@@ -25,3 +25,5 @@ class RegistryCheckResult(BaseModel):
     confidence: ConfidenceLevel = ConfidenceLevel.low
     notes: list[str] = []
     is_mock: bool = True
+    matched_name: Optional[str] = None
+    searched_names: list[str] = []
