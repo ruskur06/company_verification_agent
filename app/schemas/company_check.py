@@ -6,6 +6,7 @@ from typing import Optional
 
 from pydantic import BaseModel, field_validator
 
+from app.schemas.name_normalizer import NameNormalizerResult
 from app.schemas.registry import RegistryCheckResult
 from app.schemas.source import SourceResult, ConfidenceLevel
 from app.schemas.risk import RiskFactor, RiskLevel, HumanReviewStatus
@@ -75,6 +76,7 @@ class CompanyCheckResult(BaseModel):
 
     check_id: int
     company: CompanyInfo
+    name_normalization: Optional[NameNormalizerResult] = None
     summary: SummaryInfo
     sources: list[SourceResult]
     domain_dns: DomainDnsInfo

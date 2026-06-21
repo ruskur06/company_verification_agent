@@ -7,6 +7,7 @@ from typing import Optional
 
 from app.agents.domain_agent import DomainAgent
 from app.agents.human_review_agent import HumanReviewAgent
+from app.agents.name_normalizer_agent import NameNormalizer
 from app.agents.registry_agent import RegistryAgent
 from app.agents.report_agent import ReportAgent
 from app.agents.risk_agent import RiskAgent
@@ -20,6 +21,7 @@ from app.schemas.company_check import (
     RiskInfo,
     SummaryInfo,
 )
+from app.schemas.name_normalizer import NameNormalizerInput
 from app.schemas.risk import RiskScoreInput
 from app.schemas.registry import RegistryCheckResult
 from app.schemas.source import ConfidenceLevel
@@ -55,6 +57,7 @@ class CompanyCheckAgent:
 
     def __init__(
         self,
+        name_normalizer: NameNormalizer | None = None,
         web_search_agent: WebSearchAgent | None = None,
         domain_agent: DomainAgent | None = None,
         registry_agent: RegistryAgent | None = None,
@@ -62,6 +65,7 @@ class CompanyCheckAgent:
         report_agent: ReportAgent | None = None,
         human_review_agent: HumanReviewAgent | None = None,
     ) -> None:
+        self.name_normalizer = name_normalizer or NameNormalizer()
         self.web_search_agent = web_search_agent or WebSearchAgent()
         self.domain_agent = domain_agent or DomainAgent()
         self.registry_agent = registry_agent or RegistryAgent()
@@ -82,17 +86,32 @@ class CompanyCheckAgent:
             domain=domain,
         )
 
+        name_normalization = self.name_normalizer.run(
+            NameNormalizerInput(
+                company_name=request.company_name,
+                country=request.country,
+                domain=request.domain,
+            )
+        )
+
+        search_name = name_normalization.normalized_name
+        effective_domain = request.domain or (
+            name_normalization.domain_candidates[0]
+            if name_normalization.domain_candidates
+            else None
+        )
+
         check_id = _new_check_id()
 
-        dns_info = self.domain_agent.run(request.domain)
+        dns_info = self.domain_agent.run(effective_domain)
 
         sources = self.web_search_agent.run(
-            company_name=request.company_name,
+            company_name=search_name,
             country=request.country,
         )
 
         registry_check = self.registry_agent.run(
-            company_name=request.company_name,
+            company_name=search_name,
             country=request.country,
         )
 
@@ -100,7 +119,7 @@ class CompanyCheckAgent:
         suspicious_keywords = extract_suspicious_keywords(sources)
 
         risk_input = RiskScoreInput(
-            has_website=bool(request.domain) and dns_info.https_available,
+            has_website=bool(effective_domain) and dns_info.https_available,
             domain_resolves=dns_info.has_a_record,
             has_mx_record=dns_info.has_mx_record,
             https_available=dns_info.https_available,
@@ -121,8 +140,9 @@ class CompanyCheckAgent:
                 country=request.country,
                 domain=request.domain,
             ),
+            name_normalization=name_normalization,
             summary=SummaryInfo(
-                short_description=f"Preliminary local check for {request.company_name}.",
+                short_description=f"Preliminary local check for {search_name}.",
                 overall_assessment=(
                     "This is a preliminary local check based on DNS data and mock web search output. "
                     "Mock sources are useful for testing the pipeline but must not be treated as verified evidence. "
