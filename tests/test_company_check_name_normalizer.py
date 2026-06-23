@@ -86,7 +86,7 @@ def test_company_check_calls_name_normalizer_and_uses_normalized_names():
         country="USA",
     )
     web_search_agent.run.assert_called_once_with(
-        company_name="Servochron",
+        search_names=expected_search_names,
         country="USA",
     )
 

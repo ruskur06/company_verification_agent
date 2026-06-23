@@ -106,7 +106,7 @@ class CompanyCheckAgent:
         dns_info = self.domain_agent.run(effective_domain)
 
         sources = self.web_search_agent.run(
-            company_name=search_name,
+            search_names=name_normalization.search_names,
             country=request.country,
         )
 
@@ -146,6 +146,7 @@ class CompanyCheckAgent:
                 overall_assessment=(
                     "This is a preliminary local check based on DNS data and mock web search output. "
                     "Mock sources are useful for testing the pipeline but must not be treated as verified evidence. "
+                    "A higher preliminary score may reflect missing verified data and verification risk, not proof of misconduct. "
                     "Final risk assessment requires human review."
                 ),
                 confidence=ConfidenceLevel.low,

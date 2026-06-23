@@ -9,10 +9,15 @@ from app.tools.web_search import web_search
 class WebSearchAgent:
     """Runs company web search and returns source results."""
 
-    def run(self, company_name: str, country: str, max_results: int = 5) -> list[SourceResult]:
-        """Search for company information and return source results."""
+    def run(
+        self,
+        search_names: list[str],
+        country: str,
+        max_results: int = 5,
+    ) -> list[SourceResult]:
+        """Search for company information across normalized name variants."""
         return web_search(
-            company_name=company_name,
+            search_names=search_names,
             country=country,
             max_results=max_results,
         )
