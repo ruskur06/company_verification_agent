@@ -221,6 +221,70 @@ def save_company_check(result: dict) -> None:
         session.close()
 
 
+class CompanyCheckNotFoundError(LookupError):
+    """Raised when a company check record does not exist in the database."""
+
+
+def _enum_value(value: Any) -> str | None:
+    if value is None:
+        return None
+    if hasattr(value, "value"):
+        return value.value
+    return str(value)
+
+
+def _source_record_to_dict(record: SourceRecord) -> dict:
+    created_at = record.created_at or datetime.utcnow()
+    return {
+        "id": record.id,
+        "company_check_id": record.check_id,
+        "title": record.title or "",
+        "url": record.url or "",
+        "snippet": record.snippet,
+        "source_type": record.source_type or "other",
+        "confidence": record.confidence or "low",
+        "is_mock": record.is_mock,
+        "retrieved_at": created_at,
+        "created_at": created_at,
+    }
+
+
+def add_source_to_company_check(company_check_id: str, source_data: dict) -> dict:
+    """Attach one human-verified source to an existing company check."""
+    check_id = str(company_check_id).strip()
+    if not check_id:
+        raise ValueError("company_check_id must not be empty")
+
+    session = SessionLocal()
+    try:
+        existing = (
+            session.query(CompanyCheckRecord)
+            .filter(CompanyCheckRecord.check_id == check_id)
+            .first()
+        )
+        if existing is None:
+            raise CompanyCheckNotFoundError(f"Company check {check_id} was not found.")
+
+        record = SourceRecord(
+            check_id=check_id,
+            title=source_data.get("title"),
+            url=source_data.get("url"),
+            snippet=source_data.get("snippet"),
+            source_type=_enum_value(source_data.get("source_type")),
+            confidence=_enum_value(source_data.get("confidence")),
+            is_mock=False,
+        )
+        session.add(record)
+        session.commit()
+        session.refresh(record)
+        return _source_record_to_dict(record)
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+
 def get_company_check_by_id(check_id: str) -> dict | None:
     """Load one saved company check by check_id."""
     session = SessionLocal()

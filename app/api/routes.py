@@ -6,7 +6,9 @@ from fastapi import APIRouter, HTTPException
 
 from app.schemas.company_check import CompanyCheckRequest, CompanyCheckResponse, CompanyCheckResult
 from app.schemas.risk import HumanReviewInput
+from app.schemas.source import ManualSourceCreate, SavedSourceResponse
 from app.services.company_check_service import (
+    add_manual_source_to_company_check,
     apply_human_review,
     list_checks_from_db,
     list_company_checks,
@@ -57,6 +59,25 @@ def get_company_check(check_id: int) -> CompanyCheckResult:
         raise HTTPException(status_code=404, detail=f"Check {check_id} was not found.")
 
     return result
+
+
+@router.post(
+    "/company-checks/{company_check_id}/sources",
+    response_model=SavedSourceResponse,
+    status_code=201,
+)
+def add_company_check_source(
+    company_check_id: int,
+    source: ManualSourceCreate,
+) -> SavedSourceResponse:
+    """Attach a human-verified source to an existing company check."""
+    try:
+        return add_manual_source_to_company_check(company_check_id, source)
+    except ValueError as exc:
+        message = str(exc)
+        if "not found" in message.lower():
+            raise HTTPException(status_code=404, detail=message) from exc
+        raise HTTPException(status_code=400, detail=message) from exc
 
 
 @router.post("/company-check/{check_id}/human-review", response_model=CompanyCheckResult)

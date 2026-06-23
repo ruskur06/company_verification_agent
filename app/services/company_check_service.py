@@ -11,12 +11,15 @@ from typing import Any, Optional
 from app.agents.company_check_agent import CompanyCheckAgent
 from app.agents.report_agent import ReportAgent, json_path_for_check
 from app.db.repositories import (
+    CompanyCheckNotFoundError,
+    add_source_to_company_check,
     get_company_check_by_id as get_saved_company_check,
     list_company_checks as list_saved_company_checks,
     save_company_check,
 )
 from app.schemas.company_check import CompanyCheckResponse, CompanyCheckResult
 from app.schemas.risk import HumanReviewStatus, RiskLevel
+from app.schemas.source import ManualSourceCreate, SavedSourceResponse
 
 _report_agent = ReportAgent()
 _check_agent = CompanyCheckAgent(report_agent=_report_agent)
@@ -89,6 +92,22 @@ def list_checks_from_db(limit: int = 20) -> list[dict[str, Any]]:
 def get_check_from_db(check_id: str) -> dict[str, Any] | None:
     """Load one company check record from PostgreSQL."""
     return get_saved_company_check(check_id)
+
+
+def add_manual_source_to_company_check(
+    company_check_id: int | str,
+    source: ManualSourceCreate,
+) -> SavedSourceResponse:
+    """Attach a human-verified source to an existing saved company check."""
+    try:
+        saved = add_source_to_company_check(
+            str(company_check_id),
+            source.model_dump(mode="json"),
+        )
+    except CompanyCheckNotFoundError as exc:
+        raise ValueError(str(exc)) from exc
+
+    return SavedSourceResponse.model_validate(saved)
 
 
 def apply_human_review(
