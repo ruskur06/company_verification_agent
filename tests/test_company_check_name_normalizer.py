@@ -6,7 +6,7 @@ from app.agents.name_normalizer_agent import NameNormalizer
 from app.schemas.company_check import CheckStatus, DomainDnsInfo, DomainDnsStatus
 from app.schemas.name_normalizer import NameNormalizerInput
 from app.schemas.registry import RegistryCheckResult, RegistryCheckStatus
-from app.schemas.risk import HumanReviewStatus, RiskLevel, RiskScoreResult
+from app.schemas.risk import BusinessRiskLevel, HumanReviewStatus, RiskLevel, RiskScoreResult
 from app.schemas.source import ConfidenceLevel
 
 
@@ -23,6 +23,9 @@ def _build_agent(
     risk_agent.run.return_value = RiskScoreResult(
         score=45,
         level=RiskLevel.medium,
+        verification_confidence=RiskLevel.low,
+        verification_risk=RiskLevel.medium,
+        business_risk=BusinessRiskLevel.unknown,
         factors=[],
         requires_human_review=True,
     )

@@ -11,6 +11,13 @@ class RiskLevel(str, Enum):
     high = "high"
 
 
+class BusinessRiskLevel(str, Enum):
+    low = "low"
+    medium = "medium"
+    high = "high"
+    unknown = "unknown"
+
+
 class HumanReviewStatus(str, Enum):
     pending = "pending"
     approved = "approved"
@@ -31,14 +38,19 @@ class RiskScoreInput(BaseModel):
     https_available: bool = False
     negative_snippets_count: int = 0
     registry_found: bool = False
+    registry_is_mock: bool = True
     multiple_sources_confirm: bool = False
     suspicious_keywords_found: list[str] = []
     source_count: int = 0
+    all_sources_mock: bool = True
 
 
 class RiskScoreResult(BaseModel):
     score: int
     level: RiskLevel
+    verification_confidence: RiskLevel
+    verification_risk: RiskLevel
+    business_risk: BusinessRiskLevel
     factors: list[RiskFactor]
     requires_human_review: bool
 

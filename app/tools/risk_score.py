@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
-from app.schemas.risk import RiskFactor, RiskLevel, RiskScoreInput, RiskScoreResult
+from app.schemas.risk import (
+    BusinessRiskLevel,
+    RiskFactor,
+    RiskLevel,
+    RiskScoreInput,
+    RiskScoreResult,
+)
 
 
 def _clamp_score(score: int) -> int:
@@ -17,8 +23,74 @@ def _level_from_score(score: int) -> RiskLevel:
     return RiskLevel.high
 
 
+def _registry_confirmed(input_data: RiskScoreInput) -> bool:
+    return input_data.registry_found and not input_data.registry_is_mock
+
+
+def _has_verified_sources(input_data: RiskScoreInput) -> bool:
+    return _registry_confirmed(input_data) or (
+        not input_data.all_sources_mock and input_data.source_count > 0
+    )
+
+
+def _verification_confidence(input_data: RiskScoreInput) -> RiskLevel:
+    if input_data.all_sources_mock and not _registry_confirmed(input_data):
+        return RiskLevel.low
+
+    confidence_points = 0
+
+    if _registry_confirmed(input_data):
+        confidence_points += 40
+    elif input_data.registry_found:
+        confidence_points += 10
+
+    if input_data.domain_resolves:
+        confidence_points += 20
+
+    if not input_data.all_sources_mock:
+        if input_data.source_count >= 3:
+            confidence_points += 30
+        elif input_data.source_count > 0:
+            confidence_points += 15
+
+    if input_data.multiple_sources_confirm:
+        confidence_points += 20
+
+    if confidence_points >= 60:
+        return RiskLevel.high
+    if confidence_points >= 30:
+        return RiskLevel.medium
+    return RiskLevel.low
+
+
+def _business_risk(input_data: RiskScoreInput) -> BusinessRiskLevel:
+    if not _has_verified_sources(input_data):
+        return BusinessRiskLevel.unknown
+
+    if input_data.all_sources_mock and not _registry_confirmed(input_data):
+        return BusinessRiskLevel.unknown
+
+    verified_negative_count = (
+        0 if input_data.all_sources_mock else input_data.negative_snippets_count
+    )
+    verified_keywords = (
+        [] if input_data.all_sources_mock else input_data.suspicious_keywords_found
+    )
+
+    if verified_negative_count == 0 and not verified_keywords:
+        return BusinessRiskLevel.unknown
+
+    risk_points = verified_negative_count * 10 + len(verified_keywords) * 10
+
+    if risk_points >= 30:
+        return BusinessRiskLevel.high
+    if risk_points >= 10:
+        return BusinessRiskLevel.medium
+    return BusinessRiskLevel.low
+
+
 def calculate_risk_score(input_data: RiskScoreInput) -> RiskScoreResult:
-    """Calculate preliminary risk score using deterministic rules."""
+    """Calculate preliminary verification scoring and separated risk dimensions."""
     score = 50
     factors: list[RiskFactor] = []
 
@@ -28,59 +100,124 @@ def calculate_risk_score(input_data: RiskScoreInput) -> RiskScoreResult:
         factors.append(RiskFactor(name=name, impact=impact, explanation=explanation))
 
     if input_data.has_website:
-        add_factor("official_website_found", -15, "An official or likely official website was found.")
+        add_factor(
+            "official_website_found",
+            -15,
+            "An official or likely official website was found.",
+        )
     else:
-        add_factor("official_website_not_found", 15, "No official website was confirmed.")
+        add_factor(
+            "official_website_not_found",
+            15,
+            "No official website was confirmed; this increases verification risk, not business risk.",
+        )
 
     if input_data.domain_resolves:
         add_factor("domain_resolves", -10, "The provided domain resolves successfully.")
     else:
-        add_factor("domain_does_not_resolve", 20, "The provided domain does not resolve or was not confirmed.")
+        add_factor(
+            "domain_does_not_resolve",
+            20,
+            "The provided domain does not resolve or was not confirmed; this increases verification risk.",
+        )
 
     if input_data.has_mx_record:
         add_factor("mx_record_found", -5, "MX records were found for the domain.")
     else:
-        add_factor("mx_record_missing", 5, "No MX records were confirmed for the domain.")
+        add_factor(
+            "mx_record_missing",
+            5,
+            "No MX records were confirmed for the domain.",
+        )
 
     if input_data.https_available:
         add_factor("https_available", -5, "HTTPS appears to be available.")
     else:
         add_factor("https_not_confirmed", 5, "HTTPS availability was not confirmed.")
 
-    if input_data.registry_found:
-        add_factor("registry_found", -20, "A company registry or equivalent official source was found.")
-    else:
-        add_factor("registry_not_found", 20, "No official company registry source was confirmed.")
-
-    if input_data.multiple_sources_confirm:
-        add_factor("multiple_sources_confirm", -15, "Multiple independent sources confirm the company identity.")
-    else:
-        add_factor("weak_source_confirmation", 10, "Source coverage is weak or not independently confirmed.")
-
-    if input_data.source_count <= 0:
-        add_factor("no_source_coverage", 15, "No source coverage was found.")
-    elif input_data.source_count < 3:
-        add_factor("limited_source_coverage", 10, "Only limited source coverage was found.")
-    else:
-        add_factor("reasonable_source_coverage", -10, "Several sources were found.")
-
-    if input_data.negative_snippets_count > 0:
-        impact = min(30, input_data.negative_snippets_count * 10)
-        add_factor("negative_search_signals", impact, f"{input_data.negative_snippets_count} negative signal(s) were found.")
-
-    if input_data.suspicious_keywords_found:
-        impact = min(30, len(input_data.suspicious_keywords_found) * 10)
+    if _registry_confirmed(input_data):
         add_factor(
-            "suspicious_keywords_found",
-            impact,
-            "Suspicious keywords were found: " + ", ".join(input_data.suspicious_keywords_found),
+            "registry_confirmed",
+            -20,
+            "A verified company registry or equivalent official source was found.",
+        )
+    elif input_data.registry_found:
+        add_factor(
+            "registry_found_but_mock",
+            10,
+            "A registry match was found but is based on mock data and is not verified.",
+        )
+    else:
+        add_factor(
+            "registry_not_found",
+            20,
+            "No official company registry source was confirmed; this increases verification risk.",
         )
 
-    final_score = _clamp_score(score)
+    if input_data.multiple_sources_confirm:
+        add_factor(
+            "multiple_sources_confirm",
+            -15,
+            "Multiple independent sources confirm the company identity.",
+        )
+    else:
+        add_factor(
+            "weak_source_confirmation",
+            10,
+            "Source coverage is weak or not independently confirmed.",
+        )
+
+    if input_data.source_count <= 0:
+        add_factor(
+            "no_source_coverage",
+            15,
+            "No source coverage was found; verification risk is elevated.",
+        )
+    elif input_data.all_sources_mock:
+        add_factor(
+            "mock_source_coverage_only",
+            10,
+            "Sources exist but are mock test data and do not provide verified evidence.",
+        )
+    elif input_data.source_count < 3:
+        add_factor(
+            "limited_source_coverage",
+            10,
+            "Only limited verified source coverage was found.",
+        )
+    else:
+        add_factor("reasonable_source_coverage", -10, "Several verified sources were found.")
+
+    if not input_data.all_sources_mock:
+        if input_data.negative_snippets_count > 0:
+            add_factor(
+                "verified_negative_search_signals",
+                0,
+                (
+                    f"{input_data.negative_snippets_count} negative signal(s) were found in "
+                    "verified sources and are reflected in business risk, not verification score."
+                ),
+            )
+
+        if input_data.suspicious_keywords_found:
+            add_factor(
+                "verified_suspicious_keywords_found",
+                0,
+                "Suspicious keywords were found in verified sources: "
+                + ", ".join(input_data.suspicious_keywords_found),
+            )
+
+    verification_score = _clamp_score(score)
+    verification_risk = _level_from_score(verification_score)
+    verification_confidence = _verification_confidence(input_data)
+    business_risk = _business_risk(input_data)
 
     return RiskScoreResult(
-        score=final_score,
-        level=_level_from_score(final_score),
+        score=verification_score,
+        level=verification_risk,
+        verification_confidence=verification_confidence,
+        verification_risk=verification_risk,
+        business_risk=business_risk,
         factors=factors,
         requires_human_review=True,
     )

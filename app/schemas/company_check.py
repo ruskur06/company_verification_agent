@@ -9,7 +9,7 @@ from pydantic import BaseModel, field_validator
 from app.schemas.name_normalizer import NameNormalizerResult
 from app.schemas.registry import RegistryCheckResult
 from app.schemas.source import SourceResult, ConfidenceLevel
-from app.schemas.risk import RiskFactor, RiskLevel, HumanReviewStatus
+from app.schemas.risk import BusinessRiskLevel, RiskFactor, RiskLevel, HumanReviewStatus
 
 
 class CheckStatus(str, Enum):
@@ -64,6 +64,9 @@ class DomainDnsInfo(BaseModel):
 class RiskInfo(BaseModel):
     preliminary_score: int
     preliminary_level: RiskLevel
+    verification_confidence: RiskLevel
+    verification_risk: RiskLevel
+    business_risk: BusinessRiskLevel
     factors: list[RiskFactor]
     requires_human_review: bool
     final_score: Optional[int] = None

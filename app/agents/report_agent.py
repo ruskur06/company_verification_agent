@@ -136,13 +136,18 @@ Warnings:
 
 {_format_registry_markdown(result)}
 
-## 6. Preliminary Risk Score
+## 6. Verification and Risk Assessment
 
-- Score: {result.risk.preliminary_score}
-- Level: {result.risk.preliminary_level.value}
+- Verification confidence: **{result.risk.verification_confidence.value.upper()}**
+- Verification risk: **{result.risk.verification_risk.value.upper()}**
+- Business risk: **{result.risk.business_risk.value.upper()}**
+- Preliminary verification score (legacy): {result.risk.preliminary_score}
+- Preliminary verification level (legacy): {result.risk.preliminary_level.value}
 - Requires human review: {result.risk.requires_human_review}
 
-## 7. Risk Factors
+High verification risk means the check lacks enough verified evidence. It is not proof of misconduct or high business risk. Mock sources are not verified evidence.
+
+## 7. Verification Risk Factors
 
 {_format_risk_factors_markdown(result)}
 

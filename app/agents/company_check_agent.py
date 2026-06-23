@@ -117,6 +117,7 @@ class CompanyCheckAgent:
 
         negative_snippets_count = count_negative_snippets(sources)
         suspicious_keywords = extract_suspicious_keywords(sources)
+        all_sources_mock = len(sources) == 0 or all(source.is_mock for source in sources)
 
         risk_input = RiskScoreInput(
             has_website=bool(effective_domain) and dns_info.https_available,
@@ -125,9 +126,11 @@ class CompanyCheckAgent:
             https_available=dns_info.https_available,
             negative_snippets_count=negative_snippets_count,
             registry_found=registry_check.registry_found,
+            registry_is_mock=registry_check.is_mock,
             multiple_sources_confirm=False,
             suspicious_keywords_found=suspicious_keywords,
             source_count=len(sources),
+            all_sources_mock=all_sources_mock,
         )
 
         risk_result = self.risk_agent.run(risk_input)
@@ -157,6 +160,9 @@ class CompanyCheckAgent:
             risk=RiskInfo(
                 preliminary_score=risk_result.score,
                 preliminary_level=risk_result.level,
+                verification_confidence=risk_result.verification_confidence,
+                verification_risk=risk_result.verification_risk,
+                business_risk=risk_result.business_risk,
                 factors=risk_result.factors,
                 requires_human_review=risk_result.requires_human_review,
                 final_score=None,

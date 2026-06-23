@@ -43,6 +43,9 @@ def valid_company_check_data():
         "risk": {
             "preliminary_score": 45,
             "preliminary_level": "medium",
+            "verification_confidence": "low",
+            "verification_risk": "medium",
+            "business_risk": "unknown",
             "factors": [],
             "requires_human_review": True,
             "final_score": None,
@@ -64,6 +67,7 @@ def test_valid_company_check_json_passes_validation():
 
     assert model.company.name == "Servochron"
     assert model.risk.preliminary_level.value == "medium"
+    assert model.risk.business_risk.value == "unknown"
 
 
 def test_invalid_risk_level_fails_validation():
