@@ -98,3 +98,13 @@ class CompanyCheckResponse(BaseModel):
     json_result: Optional[CompanyCheckResult] = None
     markdown_report_path: Optional[str] = None
     error: Optional[str] = None
+
+
+class RefreshReportResponse(BaseModel):
+    """Response after refreshing a company check report from database sources."""
+
+    check_id: int
+    status: CheckStatus = CheckStatus.completed
+    json_result: CompanyCheckResult
+    json_report_path: str
+    markdown_report_path: str

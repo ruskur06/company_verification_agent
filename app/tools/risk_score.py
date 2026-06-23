@@ -56,9 +56,14 @@ def _verification_confidence(input_data: RiskScoreInput) -> RiskLevel:
     if input_data.multiple_sources_confirm:
         confidence_points += 20
 
+    if input_data.has_high_confidence_verified_source:
+        confidence_points += 30
+
     if confidence_points >= 60:
         return RiskLevel.high
     if confidence_points >= 30:
+        return RiskLevel.medium
+    if input_data.has_high_confidence_verified_source:
         return RiskLevel.medium
     return RiskLevel.low
 
@@ -188,6 +193,19 @@ def calculate_risk_score(input_data: RiskScoreInput) -> RiskScoreResult:
     else:
         add_factor("reasonable_source_coverage", -10, "Several verified sources were found.")
 
+    if input_data.has_high_confidence_verified_source:
+        add_factor(
+            "high_confidence_verified_source",
+            -40,
+            "A high-confidence manually verified source is available and improves verification confidence.",
+        )
+    elif input_data.verified_non_mock_source_count > 0:
+        add_factor(
+            "manual_verified_source",
+            -15,
+            "One or more manually verified non-mock sources are available.",
+        )
+
     if not input_data.all_sources_mock:
         if input_data.negative_snippets_count > 0:
             add_factor(
@@ -211,6 +229,13 @@ def calculate_risk_score(input_data: RiskScoreInput) -> RiskScoreResult:
     verification_risk = _level_from_score(verification_score)
     verification_confidence = _verification_confidence(input_data)
     business_risk = _business_risk(input_data)
+
+    if (
+        input_data.has_high_confidence_verified_source
+        and verification_risk == RiskLevel.high
+    ):
+        verification_score = min(verification_score, 60)
+        verification_risk = RiskLevel.medium
 
     return RiskScoreResult(
         score=verification_score,

@@ -173,6 +173,25 @@ def test_score_is_clamped_to_0_100():
     assert 0 <= low_result.score <= 100
 
 
+def test_high_confidence_manual_source_improves_verification_without_setting_business_risk():
+    result = calculate_risk_score(
+        RiskScoreInput(
+            has_website=False,
+            domain_resolves=False,
+            registry_found=False,
+            registry_is_mock=True,
+            source_count=2,
+            all_sources_mock=False,
+            verified_non_mock_source_count=1,
+            has_high_confidence_verified_source=True,
+        )
+    )
+
+    assert result.verification_confidence == RiskLevel.medium
+    assert result.verification_risk == RiskLevel.medium
+    assert result.business_risk == BusinessRiskLevel.unknown
+
+
 def test_risk_score_is_deterministic():
     input_data = RiskScoreInput(
         has_website=True,

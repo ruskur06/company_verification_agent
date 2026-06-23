@@ -31,7 +31,10 @@ def _format_sources_markdown(sources: list[SourceResult]) -> str:
     lines: list[str] = []
 
     for source in sources:
-        mock_label = "yes" if source.is_mock else "no"
+        if source.is_mock:
+            evidence_label = "mock"
+        else:
+            evidence_label = "verified/manual"
 
         lines.append(
             "\n".join(
@@ -40,7 +43,7 @@ def _format_sources_markdown(sources: list[SourceResult]) -> str:
                     f"  - URL: `{source.url}`",
                     f"  - Type: `{source.source_type.value}`",
                     f"  - Confidence: `{source.confidence.value}`",
-                    f"  - Mock: `{mock_label}`",
+                    f"  - Evidence type: `{evidence_label}`",
                     f"  - Snippet: {source.snippet}",
                 ]
             )

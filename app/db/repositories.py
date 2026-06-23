@@ -285,6 +285,75 @@ def add_source_to_company_check(company_check_id: str, source_data: dict) -> dic
         session.close()
 
 
+def get_sources_for_company_check(company_check_id: str) -> list[dict]:
+    """Load all sources linked to a company check."""
+    check_id = str(company_check_id).strip()
+    session = SessionLocal()
+    try:
+        records = (
+            session.query(SourceRecord)
+            .filter(SourceRecord.check_id == check_id)
+            .order_by(SourceRecord.id.asc())
+            .all()
+        )
+        return [_source_record_to_dict(record) for record in records]
+    finally:
+        session.close()
+
+
+def update_company_check_after_refresh(result: dict) -> None:
+    """Update company check metadata and append a refreshed report record."""
+    check_id = str(result.get("check_id", "")).strip()
+    if not check_id:
+        raise ValueError("check_id must not be empty")
+
+    risk = result.get("risk") or {}
+    risk_score = risk.get("preliminary_score", result.get("risk_score"))
+    risk_level = risk.get("preliminary_level", result.get("risk_level"))
+    if hasattr(risk_level, "value"):
+        risk_level = risk_level.value
+
+    human_review_status = risk.get("human_review_status", result.get("human_review_status", "pending"))
+    if hasattr(human_review_status, "value"):
+        human_review_status = human_review_status.value
+
+    json_report_path = result.get("json_report_path")
+    markdown_report_path = result.get("markdown_report_path")
+
+    session = SessionLocal()
+    try:
+        record = (
+            session.query(CompanyCheckRecord)
+            .filter(CompanyCheckRecord.check_id == check_id)
+            .first()
+        )
+        if record is None:
+            raise CompanyCheckNotFoundError(f"Company check {check_id} was not found.")
+
+        record.risk_score = risk_score
+        record.risk_level = risk_level
+        record.human_review_status = str(human_review_status)
+        record.json_report_path = json_report_path
+        record.markdown_report_path = markdown_report_path
+
+        session.add(
+            ReportRecord(
+                check_id=check_id,
+                json_path=json_report_path,
+                markdown_path=markdown_report_path,
+                json_content=_read_text_file(json_report_path),
+                markdown_content=_read_text_file(markdown_report_path),
+            )
+        )
+
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+
 def get_company_check_by_id(check_id: str) -> dict | None:
     """Load one saved company check by check_id."""
     session = SessionLocal()

@@ -43,6 +43,8 @@ class RiskScoreInput(BaseModel):
     suspicious_keywords_found: list[str] = []
     source_count: int = 0
     all_sources_mock: bool = True
+    verified_non_mock_source_count: int = 0
+    has_high_confidence_verified_source: bool = False
 
 
 class RiskScoreResult(BaseModel):

@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
 
-from app.schemas.company_check import CompanyCheckRequest, CompanyCheckResponse, CompanyCheckResult
+from app.schemas.company_check import (
+    CompanyCheckRequest,
+    CompanyCheckResponse,
+    CompanyCheckResult,
+    RefreshReportResponse,
+)
 from app.schemas.risk import HumanReviewInput
 from app.schemas.source import ManualSourceCreate, SavedSourceResponse
 from app.services.company_check_service import (
@@ -13,6 +18,7 @@ from app.services.company_check_service import (
     list_checks_from_db,
     list_company_checks,
     load_company_check,
+    refresh_company_check_report,
     run_company_check,
 )
 
@@ -73,6 +79,21 @@ def add_company_check_source(
     """Attach a human-verified source to an existing company check."""
     try:
         return add_manual_source_to_company_check(company_check_id, source)
+    except ValueError as exc:
+        message = str(exc)
+        if "not found" in message.lower():
+            raise HTTPException(status_code=404, detail=message) from exc
+        raise HTTPException(status_code=400, detail=message) from exc
+
+
+@router.post(
+    "/company-checks/{company_check_id}/refresh-report",
+    response_model=RefreshReportResponse,
+)
+def refresh_company_check_report_endpoint(company_check_id: int) -> RefreshReportResponse:
+    """Refresh JSON/Markdown output using linked database sources and updated risk."""
+    try:
+        return refresh_company_check_report(company_check_id)
     except ValueError as exc:
         message = str(exc)
         if "not found" in message.lower():
