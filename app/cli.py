@@ -50,8 +50,13 @@ def check_company(
     typer.echo(f"Company: {result.company.name}")
     typer.echo(f"Country: {result.company.country}")
     typer.echo(f"Domain: {result.company.domain or 'Not provided'}")
-    typer.echo(f"Preliminary risk score: {result.risk.preliminary_score}")
-    typer.echo(f"Preliminary risk level: {result.risk.preliminary_level.value}")
+    typer.echo(f"Verification confidence: {result.risk.verification_confidence.value}")
+    typer.echo(f"Verification risk: {result.risk.verification_risk.value}")
+    typer.echo(f"Business risk: {result.risk.business_risk.value}")
+    typer.echo(
+        "Preliminary verification score (legacy): "
+        f"{result.risk.preliminary_score} ({result.risk.preliminary_level.value})"
+    )
     typer.echo(f"Human review status: {result.risk.human_review_status.value}")
     typer.echo(f"JSON path: outputs/json/company_check_{response.check_id}.json")
     typer.echo(f"Markdown report: {response.markdown_report_path}")
@@ -96,8 +101,13 @@ def show_check(
     typer.echo(f"Company: {result.company.name}")
     typer.echo(f"Country: {result.company.country}")
     typer.echo(f"Domain: {result.company.domain or 'Not provided'}")
-    typer.echo(f"Preliminary risk score: {result.risk.preliminary_score}")
-    typer.echo(f"Preliminary risk level: {result.risk.preliminary_level.value}")
+    typer.echo(f"Verification confidence: {result.risk.verification_confidence.value}")
+    typer.echo(f"Verification risk: {result.risk.verification_risk.value}")
+    typer.echo(f"Business risk: {result.risk.business_risk.value}")
+    typer.echo(
+        "Preliminary verification score (legacy): "
+        f"{result.risk.preliminary_score} ({result.risk.preliminary_level.value})"
+    )
     typer.echo(f"Human review status: {result.risk.human_review_status.value}")
     typer.echo("")
     typer.echo("Risk factors:")

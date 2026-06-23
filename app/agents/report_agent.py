@@ -94,6 +94,23 @@ def _format_registry_markdown(result: CompanyCheckResult) -> str:
     )
 
 
+def _format_verification_risk_overview_markdown(result: CompanyCheckResult) -> str:
+    return "\n".join(
+        [
+            f"- Verification confidence: **{result.risk.verification_confidence.value.upper()}**",
+            f"- Verification risk: **{result.risk.verification_risk.value.upper()}**",
+            f"- Business risk: **{result.risk.business_risk.value.upper()}**",
+            "",
+            "High verification risk means the check lacks enough verified evidence. "
+            "It is not proof of misconduct or high business risk. "
+            "Mock sources are not verified evidence.",
+            "",
+            f"- Preliminary verification score (legacy): {result.risk.preliminary_score}",
+            f"- Preliminary verification level (legacy): {result.risk.preliminary_level.value}",
+        ]
+    )
+
+
 class ReportAgent:
     """Builds Markdown reports and persists strict JSON output."""
 
@@ -107,19 +124,23 @@ class ReportAgent:
 - Country: {result.company.country}
 - Domain: {result.company.domain or "Not provided"}
 
-## 2. Executive Summary
+## 2. Verification and Risk Overview
+
+{_format_verification_risk_overview_markdown(result)}
+
+## 3. Executive Summary
 
 {result.summary.overall_assessment}
 
 Confidence: **{result.summary.confidence.value}**
 
-## 3. Source Coverage
+## 4. Source Coverage
 
 Sources found: {len(result.sources)}
 
 {_format_sources_markdown(result.sources)}
 
-## 4. Domain and DNS Findings
+## 5. Domain and DNS Findings
 
 - Status: {result.domain_dns.status.value}
 - Domain: {result.domain_dns.domain or "Not provided"}
@@ -132,20 +153,9 @@ Warnings:
 
 {_format_warnings_markdown(result.domain_dns.warnings)}
 
-## 5. Registry Check
+## 6. Registry Check
 
 {_format_registry_markdown(result)}
-
-## 6. Verification and Risk Assessment
-
-- Verification confidence: **{result.risk.verification_confidence.value.upper()}**
-- Verification risk: **{result.risk.verification_risk.value.upper()}**
-- Business risk: **{result.risk.business_risk.value.upper()}**
-- Preliminary verification score (legacy): {result.risk.preliminary_score}
-- Preliminary verification level (legacy): {result.risk.preliminary_level.value}
-- Requires human review: {result.risk.requires_human_review}
-
-High verification risk means the check lacks enough verified evidence. It is not proof of misconduct or high business risk. Mock sources are not verified evidence.
 
 ## 7. Verification Risk Factors
 
@@ -162,6 +172,8 @@ High verification risk means the check lacks enough verified evidence. It is not
 ## 10. Human Review
 
 Status: {result.risk.human_review_status.value}
+
+Requires human review: {result.risk.requires_human_review}
 
 Final score: {result.risk.final_score if result.risk.final_score is not None else "Pending"}
 

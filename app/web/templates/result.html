@@ -44,12 +44,42 @@
             </div>
 
             <section class="section">
-                <h2>Preliminary Risk Score</h2>
+                <h2>Verification and Risk Overview</h2>
 
-                <div class="risk-box risk-{{ result.risk.preliminary_level.value }}">
-                    <span class="risk-score">{{ result.risk.preliminary_score }}</span>
-                    <span class="risk-level">{{ result.risk.preliminary_level.value | upper }}</span>
+                <div class="verification-grid">
+                    <div class="metric-card">
+                        <span class="label">Verification Confidence</span>
+                        <strong class="metric-value metric-{{ result.risk.verification_confidence.value }}">
+                            {{ result.risk.verification_confidence.value | upper }}
+                        </strong>
+                    </div>
+
+                    <div class="metric-card">
+                        <span class="label">Verification Risk</span>
+                        <strong class="metric-value metric-{{ result.risk.verification_risk.value }}">
+                            {{ result.risk.verification_risk.value | upper }}
+                        </strong>
+                    </div>
+
+                    <div class="metric-card">
+                        <span class="label">Business Risk</span>
+                        <strong class="metric-value metric-{{ result.risk.business_risk.value }}">
+                            {{ result.risk.business_risk.value | upper }}
+                        </strong>
+                    </div>
                 </div>
+
+                <p class="muted">
+                    High verification risk means the check lacks enough verified evidence.
+                    It is not proof of misconduct or high business risk.
+                    Mock sources are not verified evidence.
+                </p>
+
+                <p class="muted">
+                    Preliminary verification score (legacy):
+                    <strong>{{ result.risk.preliminary_score }}</strong>
+                    ({{ result.risk.preliminary_level.value }})
+                </p>
 
                 <p class="muted">
                     Human review status:
@@ -236,7 +266,7 @@
                 <p class="muted">
                     This report is based on limited open-source information.
                     Mock sources are not verified evidence.
-                    The preliminary risk score must not be treated as a final legal,
+                    The preliminary verification score must not be treated as a final legal,
                     financial, or compliance decision.
                 </p>
             </section>

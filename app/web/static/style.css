@@ -172,6 +172,41 @@ a:hover {
     color: #fee2e2;
 }
 
+.verification-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 16px;
+    margin: 12px 0 16px;
+}
+
+.metric-card {
+    padding: 16px;
+    border-radius: 14px;
+    background: #111827;
+    border: 1px solid #374151;
+}
+
+.metric-value {
+    display: block;
+    margin-top: 8px;
+    font-size: 24px;
+    font-weight: 800;
+    letter-spacing: 0.5px;
+}
+
+.metric-low {
+    color: #6ee7b7;
+}
+
+.metric-medium {
+    color: #fcd34d;
+}
+
+.metric-high,
+.metric-unknown {
+    color: #fca5a5;
+}
+
 table {
     width: 100%;
     border-collapse: collapse;
