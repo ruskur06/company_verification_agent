@@ -28,43 +28,22 @@ def _registry_confirmed(input_data: RiskScoreInput) -> bool:
 
 
 def _has_verified_sources(input_data: RiskScoreInput) -> bool:
-    return _registry_confirmed(input_data) or (
-        not input_data.all_sources_mock and input_data.source_count > 0
-    )
+    return _registry_confirmed(input_data) or input_data.verified_non_mock_source_count > 0
 
 
 def _verification_confidence(input_data: RiskScoreInput) -> RiskLevel:
-    if input_data.all_sources_mock and not _registry_confirmed(input_data):
+    verified = input_data.verified_non_mock_source_count
+    strong = input_data.verified_strong_source_count
+
+    if verified == 0 and not _registry_confirmed(input_data):
         return RiskLevel.low
 
-    confidence_points = 0
-
-    if _registry_confirmed(input_data):
-        confidence_points += 40
-    elif input_data.registry_found:
-        confidence_points += 10
-
-    if input_data.domain_resolves:
-        confidence_points += 20
-
-    if not input_data.all_sources_mock:
-        if input_data.source_count >= 3:
-            confidence_points += 30
-        elif input_data.source_count > 0:
-            confidence_points += 15
-
-    if input_data.multiple_sources_confirm:
-        confidence_points += 20
-
-    if input_data.has_high_confidence_verified_source:
-        confidence_points += 30
-
-    if confidence_points >= 60:
+    if strong >= 2:
         return RiskLevel.high
-    if confidence_points >= 30:
+
+    if strong >= 1 or _registry_confirmed(input_data):
         return RiskLevel.medium
-    if input_data.has_high_confidence_verified_source:
-        return RiskLevel.medium
+
     return RiskLevel.low
 
 
@@ -72,14 +51,14 @@ def _business_risk(input_data: RiskScoreInput) -> BusinessRiskLevel:
     if not _has_verified_sources(input_data):
         return BusinessRiskLevel.unknown
 
-    if input_data.all_sources_mock and not _registry_confirmed(input_data):
+    if input_data.verified_non_mock_source_count == 0 and not _registry_confirmed(input_data):
         return BusinessRiskLevel.unknown
 
     verified_negative_count = (
-        0 if input_data.all_sources_mock else input_data.negative_snippets_count
+        0 if input_data.verified_non_mock_source_count == 0 else input_data.negative_snippets_count
     )
     verified_keywords = (
-        [] if input_data.all_sources_mock else input_data.suspicious_keywords_found
+        [] if input_data.verified_non_mock_source_count == 0 else input_data.suspicious_keywords_found
     )
 
     if verified_negative_count == 0 and not verified_keywords:
@@ -163,7 +142,7 @@ def calculate_risk_score(input_data: RiskScoreInput) -> RiskScoreResult:
         add_factor(
             "multiple_sources_confirm",
             -15,
-            "Multiple independent sources confirm the company identity.",
+            "Multiple independent verified sources confirm the company identity.",
         )
     else:
         add_factor(
@@ -172,41 +151,42 @@ def calculate_risk_score(input_data: RiskScoreInput) -> RiskScoreResult:
             "Source coverage is weak or not independently confirmed.",
         )
 
-    if input_data.source_count <= 0:
-        add_factor(
-            "no_source_coverage",
-            15,
-            "No source coverage was found; verification risk is elevated.",
-        )
-    elif input_data.all_sources_mock:
-        add_factor(
-            "mock_source_coverage_only",
-            10,
-            "Sources exist but are mock test data and do not provide verified evidence.",
-        )
-    elif input_data.source_count < 3:
-        add_factor(
-            "limited_source_coverage",
-            10,
-            "Only limited verified source coverage was found.",
-        )
+    verified_count = input_data.verified_non_mock_source_count
+
+    if verified_count <= 0:
+        if input_data.source_count <= 0:
+            add_factor(
+                "no_source_coverage",
+                15,
+                "No source coverage was found; verification risk is elevated.",
+            )
+        else:
+            add_factor(
+                "mock_source_coverage_only",
+                10,
+                "Sources exist but are mock test data and do not provide verified evidence.",
+            )
+    elif verified_count == 1:
+        if input_data.has_high_confidence_verified_source:
+            add_factor(
+                "manual_verified_source_found",
+                -40,
+                "A manually verified high-confidence source is available and improves verification confidence.",
+            )
+        else:
+            add_factor(
+                "manual_verified_source_found",
+                -15,
+                "A manually verified non-mock source is available and improves verification confidence.",
+            )
     else:
-        add_factor("reasonable_source_coverage", -10, "Several verified sources were found.")
-
-    if input_data.has_high_confidence_verified_source:
         add_factor(
-            "high_confidence_verified_source",
-            -40,
-            "A high-confidence manually verified source is available and improves verification confidence.",
-        )
-    elif input_data.verified_non_mock_source_count > 0:
-        add_factor(
-            "manual_verified_source",
-            -15,
-            "One or more manually verified non-mock sources are available.",
+            "reasonable_source_coverage",
+            -10,
+            "Several verified non-mock sources were found.",
         )
 
-    if not input_data.all_sources_mock:
+    if input_data.verified_non_mock_source_count > 0:
         if input_data.negative_snippets_count > 0:
             add_factor(
                 "verified_negative_search_signals",
@@ -232,6 +212,7 @@ def calculate_risk_score(input_data: RiskScoreInput) -> RiskScoreResult:
 
     if (
         input_data.has_high_confidence_verified_source
+        and input_data.verified_non_mock_source_count == 1
         and verification_risk == RiskLevel.high
     ):
         verification_score = min(verification_score, 60)

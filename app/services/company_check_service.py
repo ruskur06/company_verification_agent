@@ -134,20 +134,35 @@ def _db_source_to_source_result(source_data: dict) -> SourceResult:
     )
 
 
-def _build_refreshed_summary(result: CompanyCheckResult, has_verified_sources: bool) -> SummaryInfo:
-    if has_verified_sources:
-        return SummaryInfo(
-            short_description=result.summary.short_description,
-            overall_assessment=(
-                "This report was refreshed using stored company check data and linked sources from the database. "
-                "Manually verified non-mock sources improve verification confidence but do not prove business safety. "
-                "Business risk remains unknown unless verified negative business indicators exist. "
-                "Final assessment still requires human review."
-            ),
-            confidence=ConfidenceLevel.low,
-        )
+def _verification_confidence_to_summary_level(level: RiskLevel) -> ConfidenceLevel:
+    return {
+        RiskLevel.low: ConfidenceLevel.low,
+        RiskLevel.medium: ConfidenceLevel.medium,
+        RiskLevel.high: ConfidenceLevel.high,
+    }[level]
 
-    return result.summary
+
+def _build_refreshed_summary(
+    result: CompanyCheckResult,
+    *,
+    has_verified_sources: bool,
+    verification_confidence: RiskLevel,
+) -> SummaryInfo:
+    if has_verified_sources:
+        overall_assessment = (
+            "This report was refreshed using stored company check data and linked sources from the database. "
+            "Manually verified non-mock sources improve verification confidence but do not prove business safety. "
+            "Business risk remains unknown unless verified negative business indicators exist. "
+            "Final assessment still requires human review."
+        )
+    else:
+        overall_assessment = result.summary.overall_assessment
+
+    return SummaryInfo(
+        short_description=result.summary.short_description,
+        overall_assessment=overall_assessment,
+        confidence=_verification_confidence_to_summary_level(verification_confidence),
+    )
 
 
 def _build_refreshed_unknowns(result: CompanyCheckResult, has_verified_sources: bool) -> list[str]:
@@ -187,6 +202,11 @@ def refresh_company_check_report(company_check_id: int | str) -> RefreshReportRe
     has_high_confidence_verified_source = any(
         source.confidence == ConfidenceLevel.high for source in verified_sources
     )
+    verified_strong_source_count = sum(
+        1
+        for source in verified_sources
+        if source.confidence in {ConfidenceLevel.medium, ConfidenceLevel.high}
+    )
 
     verified_sources_for_risk = verified_sources if verified_sources else []
     negative_snippets_count = count_negative_snippets(verified_sources_for_risk)
@@ -208,12 +228,17 @@ def refresh_company_check_report(company_check_id: int | str) -> RefreshReportRe
         source_count=len(sources),
         all_sources_mock=all_sources_mock,
         verified_non_mock_source_count=len(verified_sources),
+        verified_strong_source_count=verified_strong_source_count,
         has_high_confidence_verified_source=has_high_confidence_verified_source,
     )
     risk_result = _risk_agent.run(risk_input)
 
     result.sources = sources
-    result.summary = _build_refreshed_summary(result, bool(verified_sources))
+    result.summary = _build_refreshed_summary(
+        result,
+        has_verified_sources=bool(verified_sources),
+        verification_confidence=risk_result.verification_confidence,
+    )
     result.unknowns = _build_refreshed_unknowns(result, bool(verified_sources))
     result.risk = RiskInfo(
         preliminary_score=risk_result.score,

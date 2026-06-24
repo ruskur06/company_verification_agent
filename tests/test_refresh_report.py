@@ -105,10 +105,20 @@ def test_refresh_report_with_manual_source_updates_output(sqlite_db):
     assert response.json_result.risk.verification_confidence == RiskLevel.medium
     assert response.json_result.risk.verification_risk == RiskLevel.medium
     assert response.json_result.risk.business_risk == BusinessRiskLevel.unknown
+    assert response.json_result.summary.confidence.value == "medium"
 
     saved_json = json.loads(json_path_for_check(int(CHECK_ID)).read_text(encoding="utf-8"))
     assert saved_json["risk"]["verification_confidence"] == "medium"
     assert saved_json["risk"]["business_risk"] == "unknown"
+    assert saved_json["summary"]["confidence"] == "medium"
+    assert not any(
+        factor["name"] == "reasonable_source_coverage"
+        for factor in saved_json["risk"]["factors"]
+    )
+    assert any(
+        factor["name"] == "manual_verified_source_found"
+        for factor in saved_json["risk"]["factors"]
+    )
     assert any(source["title"] == "SERVOCHRON GmbH - FirmenABC" for source in saved_json["sources"])
 
     markdown = Path(response.markdown_report_path).read_text(encoding="utf-8")

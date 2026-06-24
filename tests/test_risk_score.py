@@ -67,6 +67,8 @@ def test_verified_negative_indicators_can_set_business_risk():
             registry_is_mock=False,
             source_count=5,
             all_sources_mock=False,
+            verified_non_mock_source_count=5,
+            verified_strong_source_count=5,
             negative_snippets_count=3,
             suspicious_keywords_found=["scam", "fraud", "lawsuit"],
         )
@@ -88,6 +90,8 @@ def test_low_verification_risk_when_positive_verified_signals_exist():
             multiple_sources_confirm=True,
             source_count=5,
             all_sources_mock=False,
+            verified_non_mock_source_count=5,
+            verified_strong_source_count=5,
         )
     )
 
@@ -99,7 +103,7 @@ def test_low_verification_risk_when_positive_verified_signals_exist():
     assert result.factors
 
 
-def test_medium_verification_risk_for_partial_information():
+def test_medium_verification_confidence_for_partial_information():
     result = calculate_risk_score(
         RiskScoreInput(
             has_website=True,
@@ -108,15 +112,18 @@ def test_medium_verification_risk_for_partial_information():
             https_available=False,
             registry_found=False,
             registry_is_mock=True,
-            multiple_sources_confirm=True,
+            multiple_sources_confirm=False,
             source_count=2,
             all_sources_mock=False,
+            verified_non_mock_source_count=1,
+            verified_strong_source_count=1,
+            has_high_confidence_verified_source=True,
         )
     )
 
-    assert 31 <= result.score <= 60
-    assert result.verification_risk == RiskLevel.medium
-    assert result.level == RiskLevel.medium
+    assert result.verification_confidence == RiskLevel.medium
+    assert result.verification_confidence != RiskLevel.high
+    assert result.business_risk == BusinessRiskLevel.unknown
 
 
 def test_high_verification_risk_for_weak_unverified_signals():
@@ -183,13 +190,46 @@ def test_high_confidence_manual_source_improves_verification_without_setting_bus
             source_count=2,
             all_sources_mock=False,
             verified_non_mock_source_count=1,
+            verified_strong_source_count=1,
             has_high_confidence_verified_source=True,
         )
     )
 
     assert result.verification_confidence == RiskLevel.medium
+    assert result.verification_confidence != RiskLevel.high
     assert result.verification_risk == RiskLevel.medium
     assert result.business_risk == BusinessRiskLevel.unknown
+    assert any(factor.name == "manual_verified_source_found" for factor in result.factors)
+    assert not any(factor.name == "reasonable_source_coverage" for factor in result.factors)
+
+
+def test_mock_sources_are_not_counted_as_verified_source_coverage():
+    result = calculate_risk_score(
+        _mock_mvp_input(source_count=5, verified_non_mock_source_count=0)
+    )
+
+    assert result.verification_confidence == RiskLevel.low
+    assert any(factor.name == "mock_source_coverage_only" for factor in result.factors)
+    assert not any(factor.name == "reasonable_source_coverage" for factor in result.factors)
+
+
+def test_two_verified_sources_can_reach_high_verification_confidence():
+    result = calculate_risk_score(
+        RiskScoreInput(
+            has_website=False,
+            domain_resolves=False,
+            registry_found=False,
+            registry_is_mock=True,
+            source_count=3,
+            all_sources_mock=False,
+            verified_non_mock_source_count=2,
+            verified_strong_source_count=2,
+            multiple_sources_confirm=True,
+        )
+    )
+
+    assert result.verification_confidence == RiskLevel.high
+    assert any(factor.name == "reasonable_source_coverage" for factor in result.factors)
 
 
 def test_risk_score_is_deterministic():
@@ -203,6 +243,8 @@ def test_risk_score_is_deterministic():
         multiple_sources_confirm=True,
         source_count=2,
         all_sources_mock=False,
+        verified_non_mock_source_count=2,
+        verified_strong_source_count=2,
     )
 
     result_1 = calculate_risk_score(input_data)
