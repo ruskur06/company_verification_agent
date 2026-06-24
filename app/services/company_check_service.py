@@ -12,8 +12,10 @@ from app.agents.company_check_agent import CompanyCheckAgent
 from app.agents.report_agent import ReportAgent, json_path_for_check
 from app.agents.risk_agent import RiskAgent
 from app.db.repositories import (
+    CompanyCheckLockedError,
     CompanyCheckNotFoundError,
     add_source_to_company_check,
+    create_human_review_record,
     get_company_check_by_id as get_saved_company_check,
     get_sources_for_company_check,
     list_company_checks as list_saved_company_checks,
@@ -28,6 +30,7 @@ from app.schemas.company_check import (
     RiskInfo,
     SummaryInfo,
 )
+from app.schemas.human_review import HumanReviewCreate, HumanReviewRecordResponse
 from app.schemas.risk import HumanReviewStatus, RiskLevel, RiskScoreInput
 from app.schemas.source import ConfidenceLevel, ManualSourceCreate, SavedSourceResponse, SourceResult, SourceType
 from app.tools.web_search import count_negative_snippets, extract_suspicious_keywords
@@ -118,8 +121,28 @@ def add_manual_source_to_company_check(
         )
     except CompanyCheckNotFoundError as exc:
         raise ValueError(str(exc)) from exc
+    except CompanyCheckLockedError:
+        raise
 
     return SavedSourceResponse.model_validate(saved)
+
+
+def submit_human_review(
+    company_check_id: int | str,
+    review: HumanReviewCreate,
+) -> HumanReviewRecordResponse:
+    """Submit a DB-backed human review and lock the company check."""
+    try:
+        saved = create_human_review_record(
+            str(company_check_id),
+            review.model_dump(mode="json"),
+        )
+    except CompanyCheckNotFoundError as exc:
+        raise ValueError(str(exc)) from exc
+    except CompanyCheckLockedError:
+        raise
+
+    return HumanReviewRecordResponse.model_validate(saved)
 
 
 def _db_source_to_source_result(source_data: dict) -> SourceResult:
@@ -183,6 +206,8 @@ def refresh_company_check_report(company_check_id: int | str) -> RefreshReportRe
     db_record = get_saved_company_check(check_id_str)
     if db_record is None:
         raise ValueError(f"Company check {check_id_str} was not found.")
+    if db_record.get("is_locked"):
+        raise CompanyCheckLockedError(f"Company check {check_id_str} is already finalized.")
 
     try:
         check_id = int(check_id_str)
@@ -265,6 +290,8 @@ def refresh_company_check_report(company_check_id: int | str) -> RefreshReportRe
         update_company_check_after_refresh(payload)
     except CompanyCheckNotFoundError as exc:
         raise ValueError(str(exc)) from exc
+    except CompanyCheckLockedError:
+        raise
 
     return RefreshReportResponse(
         check_id=check_id,

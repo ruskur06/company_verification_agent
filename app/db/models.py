@@ -26,6 +26,7 @@ class CompanyCheckRecord(Base):
     markdown_report_path: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     registry_check_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     domain_check_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    is_locked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
 
 
@@ -64,4 +65,19 @@ class ReportRecord(Base):
     markdown_path: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     json_content: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     markdown_content: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
+
+class HumanReviewRecord(Base):
+    __tablename__ = "human_review_records"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    check_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    decision: Mapped[str] = mapped_column(String(50), nullable=False)
+    reviewer_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    reviewer_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    final_verification_confidence: Mapped[str] = mapped_column(String(20), nullable=False)
+    final_verification_risk: Mapped[str] = mapped_column(String(20), nullable=False)
+    final_business_risk: Mapped[str] = mapped_column(String(20), nullable=False)
+    overrides_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())

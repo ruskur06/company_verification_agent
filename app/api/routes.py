@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
 
+from app.db.repositories import CompanyCheckLockedError
 from app.schemas.company_check import (
     CompanyCheckRequest,
     CompanyCheckResponse,
     CompanyCheckResult,
     RefreshReportResponse,
 )
+from app.schemas.human_review import HumanReviewCreate, HumanReviewRecordResponse
 from app.schemas.risk import HumanReviewInput
 from app.schemas.source import ManualSourceCreate, SavedSourceResponse
 from app.services.company_check_service import (
@@ -20,9 +22,20 @@ from app.services.company_check_service import (
     load_company_check,
     refresh_company_check_report,
     run_company_check,
+    submit_human_review,
 )
 
 router = APIRouter()
+
+
+def _http_error_from_service(exc: Exception) -> HTTPException:
+    if isinstance(exc, CompanyCheckLockedError):
+        return HTTPException(status_code=409, detail=str(exc))
+
+    message = str(exc)
+    if "not found" in message.lower():
+        return HTTPException(status_code=404, detail=message)
+    return HTTPException(status_code=400, detail=message)
 
 
 @router.get("/health")
@@ -79,11 +92,10 @@ def add_company_check_source(
     """Attach a human-verified source to an existing company check."""
     try:
         return add_manual_source_to_company_check(company_check_id, source)
+    except CompanyCheckLockedError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
-        message = str(exc)
-        if "not found" in message.lower():
-            raise HTTPException(status_code=404, detail=message) from exc
-        raise HTTPException(status_code=400, detail=message) from exc
+        raise _http_error_from_service(exc) from exc
 
 
 @router.post(
@@ -94,16 +106,37 @@ def refresh_company_check_report_endpoint(company_check_id: int) -> RefreshRepor
     """Refresh JSON/Markdown output using linked database sources and updated risk."""
     try:
         return refresh_company_check_report(company_check_id)
+    except CompanyCheckLockedError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
-        message = str(exc)
-        if "not found" in message.lower():
-            raise HTTPException(status_code=404, detail=message) from exc
-        raise HTTPException(status_code=400, detail=message) from exc
+        raise _http_error_from_service(exc) from exc
+
+
+@router.post(
+    "/company-checks/{company_check_id}/human-review",
+    response_model=HumanReviewRecordResponse,
+    status_code=201,
+)
+def submit_company_check_human_review(
+    company_check_id: int,
+    review: HumanReviewCreate,
+) -> HumanReviewRecordResponse:
+    """Submit official DB-backed human review and lock the company check."""
+    try:
+        return submit_human_review(company_check_id, review)
+    except CompanyCheckLockedError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise _http_error_from_service(exc) from exc
 
 
 @router.post("/company-check/{check_id}/human-review", response_model=CompanyCheckResult)
 def review_company_check(check_id: int, review: HumanReviewInput) -> CompanyCheckResult:
-    """Apply human review to a company check."""
+    """Legacy file-based human review endpoint.
+
+    Prefer POST /company-checks/{company_check_id}/human-review for the official
+    DB-backed workflow.
+    """
     try:
         return apply_human_review(
             check_id=check_id,

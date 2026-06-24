@@ -8,7 +8,13 @@ from pathlib import Path
 from typing import Any
 
 from app.db.database import SessionLocal
-from app.db.models import CompanyCheckRecord, ReportRecord, SourceRecord, ToolCallRecord
+from app.db.models import (
+    CompanyCheckRecord,
+    HumanReviewRecord,
+    ReportRecord,
+    SourceRecord,
+    ToolCallRecord,
+)
 
 
 def _json_dumps(value: Any) -> str | None:
@@ -51,6 +57,7 @@ def _record_to_dict(record: CompanyCheckRecord) -> dict:
         "markdown_report_path": record.markdown_report_path,
         "registry_check": json.loads(record.registry_check_json) if record.registry_check_json else None,
         "domain_check": json.loads(record.domain_check_json) if record.domain_check_json else None,
+        "is_locked": bool(record.is_locked),
         "created_at": record.created_at.isoformat() if record.created_at else None,
     }
 
@@ -225,6 +232,10 @@ class CompanyCheckNotFoundError(LookupError):
     """Raised when a company check record does not exist in the database."""
 
 
+class CompanyCheckLockedError(RuntimeError):
+    """Raised when a company check is finalized and cannot be modified."""
+
+
 def _enum_value(value: Any) -> str | None:
     if value is None:
         return None
@@ -249,6 +260,111 @@ def _source_record_to_dict(record: SourceRecord) -> dict:
     }
 
 
+def _human_review_record_to_dict(record: HumanReviewRecord, *, is_locked: bool) -> dict:
+    return {
+        "id": record.id,
+        "company_check_id": record.check_id,
+        "decision": record.decision,
+        "reviewer_name": record.reviewer_name,
+        "reviewer_notes": record.reviewer_notes,
+        "final_verification_confidence": record.final_verification_confidence,
+        "final_verification_risk": record.final_verification_risk,
+        "final_business_risk": record.final_business_risk,
+        "overrides": json.loads(record.overrides_json) if record.overrides_json else {},
+        "is_locked": is_locked,
+        "created_at": record.created_at or datetime.utcnow(),
+    }
+
+
+def is_company_check_locked(company_check_id: str) -> bool:
+    """Return whether a company check has been finalized by human review."""
+    check_id = str(company_check_id).strip()
+    session = SessionLocal()
+    try:
+        record = (
+            session.query(CompanyCheckRecord)
+            .filter(CompanyCheckRecord.check_id == check_id)
+            .first()
+        )
+        if record is None:
+            return False
+        return bool(record.is_locked)
+    finally:
+        session.close()
+
+
+def get_human_reviews_for_company_check(company_check_id: str) -> list[dict]:
+    """Load all human review records for a company check."""
+    check_id = str(company_check_id).strip()
+    session = SessionLocal()
+    try:
+        company_check = (
+            session.query(CompanyCheckRecord)
+            .filter(CompanyCheckRecord.check_id == check_id)
+            .first()
+        )
+        is_locked = bool(company_check.is_locked) if company_check is not None else False
+
+        records = (
+            session.query(HumanReviewRecord)
+            .filter(HumanReviewRecord.check_id == check_id)
+            .order_by(HumanReviewRecord.id.asc())
+            .all()
+        )
+        return [_human_review_record_to_dict(record, is_locked=is_locked) for record in records]
+    finally:
+        session.close()
+
+
+def create_human_review_record(company_check_id: str, review_data: dict) -> dict:
+    """Create a new human review record and lock the company check."""
+    check_id = str(company_check_id).strip()
+    if not check_id:
+        raise ValueError("company_check_id must not be empty")
+
+    session = SessionLocal()
+    try:
+        company_check = (
+            session.query(CompanyCheckRecord)
+            .filter(CompanyCheckRecord.check_id == check_id)
+            .first()
+        )
+        if company_check is None:
+            raise CompanyCheckNotFoundError(f"Company check {check_id} was not found.")
+        if company_check.is_locked:
+            raise CompanyCheckLockedError(f"Company check {check_id} is already finalized.")
+
+        decision = _enum_value(review_data.get("decision"))
+        if decision is None:
+            raise ValueError("decision must not be empty")
+
+        review_record = HumanReviewRecord(
+            check_id=check_id,
+            decision=decision,
+            reviewer_name=review_data.get("reviewer_name"),
+            reviewer_notes=review_data.get("reviewer_notes"),
+            final_verification_confidence=_enum_value(
+                review_data.get("final_verification_confidence")
+            ),
+            final_verification_risk=_enum_value(review_data.get("final_verification_risk")),
+            final_business_risk=_enum_value(review_data.get("final_business_risk")),
+            overrides_json=_json_dumps(review_data.get("overrides") or {}),
+        )
+        session.add(review_record)
+
+        company_check.is_locked = True
+        company_check.human_review_status = decision
+
+        session.commit()
+        session.refresh(review_record)
+        return _human_review_record_to_dict(review_record, is_locked=True)
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+
 def add_source_to_company_check(company_check_id: str, source_data: dict) -> dict:
     """Attach one human-verified source to an existing company check."""
     check_id = str(company_check_id).strip()
@@ -264,6 +380,8 @@ def add_source_to_company_check(company_check_id: str, source_data: dict) -> dic
         )
         if existing is None:
             raise CompanyCheckNotFoundError(f"Company check {check_id} was not found.")
+        if existing.is_locked:
+            raise CompanyCheckLockedError(f"Company check {check_id} is already finalized.")
 
         record = SourceRecord(
             check_id=check_id,
@@ -329,6 +447,8 @@ def update_company_check_after_refresh(result: dict) -> None:
         )
         if record is None:
             raise CompanyCheckNotFoundError(f"Company check {check_id} was not found.")
+        if record.is_locked:
+            raise CompanyCheckLockedError(f"Company check {check_id} is already finalized.")
 
         record.risk_score = risk_score
         record.risk_level = risk_level
