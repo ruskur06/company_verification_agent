@@ -24,7 +24,7 @@ from app.schemas.company_check import (
 from app.schemas.name_normalizer import NameNormalizerInput
 from app.schemas.risk import RiskScoreInput
 from app.schemas.registry import RegistryCheckResult
-from app.schemas.source import ConfidenceLevel
+from app.schemas.source import ConfidenceLevel, SourceResult
 from app.tools.web_search import count_negative_snippets, extract_suspicious_keywords
 
 
@@ -32,11 +32,42 @@ def _new_check_id() -> int:
     return int(datetime.now(timezone.utc).timestamp() * 1000)
 
 
-def _build_unknowns(registry_check: RegistryCheckResult) -> list[str]:
-    unknowns = [
-        "Current web search results are mock results and not verified evidence.",
-        "Final risk score requires human review.",
+def _verified_web_sources(sources: list[SourceResult]) -> list[SourceResult]:
+    return [source for source in sources if not source.is_mock]
+
+
+def _source_coverage_flags(sources: list[SourceResult]) -> dict[str, int | bool]:
+    verified_sources = _verified_web_sources(sources)
+    verified_strong_sources = [
+        source
+        for source in verified_sources
+        if source.confidence in {ConfidenceLevel.medium, ConfidenceLevel.high}
     ]
+
+    return {
+        "all_sources_mock": len(sources) == 0 or len(verified_sources) == 0,
+        "verified_non_mock_source_count": len(verified_sources),
+        "verified_strong_source_count": len(verified_strong_sources),
+        "has_high_confidence_verified_source": any(
+            source.confidence == ConfidenceLevel.high for source in verified_sources
+        ),
+        "multiple_sources_confirm": len(verified_sources) >= 2,
+    }
+
+
+def _build_unknowns(registry_check: RegistryCheckResult, sources: list[SourceResult]) -> list[str]:
+    has_real_web_sources = bool(_verified_web_sources(sources))
+
+    if has_real_web_sources:
+        unknowns = [
+            "Real web search sources were found, but they still require human review and do not prove business safety.",
+            "Final risk score requires human review.",
+        ]
+    else:
+        unknowns = [
+            "Current web search results are mock results and not verified evidence.",
+            "Final risk score requires human review.",
+        ]
 
     if not registry_check.registry_found:
         unknowns.insert(
@@ -50,6 +81,23 @@ def _build_unknowns(registry_check: RegistryCheckResult) -> list[str]:
         )
 
     return unknowns
+
+
+def _build_overall_assessment(has_real_web_sources: bool) -> str:
+    if has_real_web_sources:
+        return (
+            "This is a preliminary check based on DNS data and real web search sources. "
+            "Real sources were found, but they still require human review and do not prove business safety. "
+            "A higher preliminary score may reflect missing verified data and verification risk, not proof of misconduct. "
+            "Final risk assessment requires human review."
+        )
+
+    return (
+        "This is a preliminary local check based on DNS data and mock web search output. "
+        "Mock sources are useful for testing the pipeline but must not be treated as verified evidence. "
+        "A higher preliminary score may reflect missing verified data and verification risk, not proof of misconduct. "
+        "Final risk assessment requires human review."
+    )
 
 
 class CompanyCheckAgent:
@@ -115,9 +163,10 @@ class CompanyCheckAgent:
             country=request.country,
         )
 
-        negative_snippets_count = count_negative_snippets(sources)
-        suspicious_keywords = extract_suspicious_keywords(sources)
-        all_sources_mock = len(sources) == 0 or all(source.is_mock for source in sources)
+        verified_sources = _verified_web_sources(sources)
+        source_coverage = _source_coverage_flags(sources)
+        negative_snippets_count = count_negative_snippets(verified_sources)
+        suspicious_keywords = extract_suspicious_keywords(verified_sources)
 
         risk_input = RiskScoreInput(
             has_website=bool(effective_domain) and dns_info.https_available,
@@ -127,10 +176,15 @@ class CompanyCheckAgent:
             negative_snippets_count=negative_snippets_count,
             registry_found=registry_check.registry_found,
             registry_is_mock=registry_check.is_mock,
-            multiple_sources_confirm=False,
+            multiple_sources_confirm=bool(source_coverage["multiple_sources_confirm"]),
             suspicious_keywords_found=suspicious_keywords,
             source_count=len(sources),
-            all_sources_mock=all_sources_mock,
+            all_sources_mock=bool(source_coverage["all_sources_mock"]),
+            verified_non_mock_source_count=int(source_coverage["verified_non_mock_source_count"]),
+            verified_strong_source_count=int(source_coverage["verified_strong_source_count"]),
+            has_high_confidence_verified_source=bool(
+                source_coverage["has_high_confidence_verified_source"]
+            ),
         )
 
         risk_result = self.risk_agent.run(risk_input)
@@ -146,12 +200,7 @@ class CompanyCheckAgent:
             name_normalization=name_normalization,
             summary=SummaryInfo(
                 short_description=f"Preliminary local check for {search_name}.",
-                overall_assessment=(
-                    "This is a preliminary local check based on DNS data and mock web search output. "
-                    "Mock sources are useful for testing the pipeline but must not be treated as verified evidence. "
-                    "A higher preliminary score may reflect missing verified data and verification risk, not proof of misconduct. "
-                    "Final risk assessment requires human review."
-                ),
+                overall_assessment=_build_overall_assessment(bool(verified_sources)),
                 confidence=ConfidenceLevel.low,
             ),
             sources=sources,
@@ -178,7 +227,7 @@ class CompanyCheckAgent:
                 "Check legal disputes and complaints.",
                 "Replace mock web search with real source verification.",
             ],
-            unknowns=_build_unknowns(registry_check),
+            unknowns=_build_unknowns(registry_check, sources),
             created_at=datetime.now(timezone.utc),
         )
 

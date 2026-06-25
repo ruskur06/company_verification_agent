@@ -1,5 +1,22 @@
+import pytest
+
 from app.agents.web_search_agent import WebSearchAgent
+from app.core.config import settings
 from app.tools.web_search import web_search
+
+
+@pytest.fixture(autouse=True)
+def use_mock_web_search_provider():
+    original_provider = settings.web_search_provider
+    original_api_key = settings.web_search_api_key
+
+    settings.web_search_provider = "mock"
+    settings.web_search_api_key = ""
+
+    yield
+
+    settings.web_search_provider = original_provider
+    settings.web_search_api_key = original_api_key
 
 
 def test_web_search_uses_multiple_normalized_name_variants():
