@@ -79,6 +79,8 @@ def _save_sources(session, check_id: str, sources: list[dict]) -> None:
                 source_type=source.get("source_type"),
                 confidence=source.get("confidence"),
                 is_mock=bool(source.get("is_mock", False)),
+                relevance=_enum_value(source.get("relevance")) or "uncertain",
+                relevance_score=float(source.get("relevance_score", 0.0)),
             )
         )
 
@@ -255,6 +257,8 @@ def _source_record_to_dict(record: SourceRecord) -> dict:
         "source_type": record.source_type or "other",
         "confidence": record.confidence or "low",
         "is_mock": record.is_mock,
+        "relevance": record.relevance or "uncertain",
+        "relevance_score": float(record.relevance_score or 0.0),
         "retrieved_at": created_at,
         "created_at": created_at,
     }
@@ -391,6 +395,8 @@ def add_source_to_company_check(company_check_id: str, source_data: dict) -> dic
             source_type=_enum_value(source_data.get("source_type")),
             confidence=_enum_value(source_data.get("confidence")),
             is_mock=False,
+            relevance="relevant",
+            relevance_score=1.0,
         )
         session.add(record)
         session.commit()

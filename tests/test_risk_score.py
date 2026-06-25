@@ -199,7 +199,7 @@ def test_high_confidence_manual_source_improves_verification_without_setting_bus
     assert result.verification_confidence != RiskLevel.high
     assert result.verification_risk == RiskLevel.medium
     assert result.business_risk == BusinessRiskLevel.unknown
-    assert any(factor.name == "manual_verified_source_found" for factor in result.factors)
+    assert any(factor.name == "verified_relevant_source_found" for factor in result.factors)
     assert not any(factor.name == "reasonable_source_coverage" for factor in result.factors)
 
 

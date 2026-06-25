@@ -7,7 +7,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.agents.report_agent import json_path_for_check
 from app.db import database
-from app.db.models import ReportRecord
+from app.db.models import ReportRecord, SourceRecord
 from app.db.repositories import (
     add_source_to_company_check,
     get_sources_for_company_check,
@@ -15,6 +15,7 @@ from app.db.repositories import (
 )
 from app.main import app
 from app.schemas.risk import BusinessRiskLevel, RiskLevel
+from app.schemas.source import RelevanceLevel
 from app.services.company_check_service import refresh_company_check_report
 from tests.test_database import sample_check_result
 from tests.test_json_schema import valid_company_check_data
@@ -116,7 +117,7 @@ def test_refresh_report_with_manual_source_updates_output(sqlite_db):
         for factor in saved_json["risk"]["factors"]
     )
     assert any(
-        factor["name"] == "manual_verified_source_found"
+        factor["name"] == "verified_relevant_source_found"
         for factor in saved_json["risk"]["factors"]
     )
     assert any(source["title"] == "SERVOCHRON GmbH - FirmenABC" for source in saved_json["sources"])
@@ -174,3 +175,45 @@ def test_refresh_report_appends_report_record(sqlite_db):
     assert report_records[-1].json_content is not None
     assert report_records[-1].markdown_content is not None
     assert len(db_sources) == 1
+
+
+def test_refresh_report_irrelevant_real_source_does_not_strengthen_coverage(sqlite_db):
+    _write_initial_json()
+    save_company_check(sample_check_result(CHECK_ID))
+
+    session = sqlite_db()
+    try:
+        session.add(
+            SourceRecord(
+                check_id=CHECK_ID,
+                title="Avron GmbH unrelated listing",
+                url="https://example.com/avron-gmbh",
+                snippet="Avron GmbH company information.",
+                source_type="search_result",
+                confidence="high",
+                is_mock=False,
+                relevance="irrelevant",
+                relevance_score=0.1,
+            )
+        )
+        session.commit()
+    finally:
+        session.close()
+
+    response = refresh_company_check_report(CHECK_ID)
+
+    titles = [source.title for source in response.json_result.sources]
+    assert "Avron GmbH unrelated listing" in titles
+
+    irrelevant = next(
+        source for source in response.json_result.sources if "Avron" in source.title
+    )
+    assert irrelevant.is_mock is False
+    assert irrelevant.relevance == RelevanceLevel.irrelevant
+
+    assert response.json_result.risk.verification_confidence == RiskLevel.low
+    assert response.json_result.risk.verification_risk == RiskLevel.high
+    assert not any(
+        factor.name == "verified_relevant_source_found"
+        for factor in response.json_result.risk.factors
+    )

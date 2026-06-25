@@ -4,7 +4,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Optional
 
-from pydantic import BaseModel, HttpUrl, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 
 class SourceType(str, Enum):
@@ -21,6 +21,12 @@ class ConfidenceLevel(str, Enum):
     high = "high"
 
 
+class RelevanceLevel(str, Enum):
+    relevant = "relevant"
+    uncertain = "uncertain"
+    irrelevant = "irrelevant"
+
+
 class SourceResult(BaseModel):
     title: str
     url: str
@@ -29,6 +35,9 @@ class SourceResult(BaseModel):
     retrieved_at: datetime
     confidence: ConfidenceLevel = ConfidenceLevel.low
     is_mock: bool = False
+    relevance: RelevanceLevel = RelevanceLevel.uncertain
+    relevance_score: float = 0.0
+    relevance_reasons: list[str] = Field(default_factory=list)
 
 
 class ManualSourceCreate(BaseModel):
@@ -60,5 +69,7 @@ class SavedSourceResponse(BaseModel):
     source_type: SourceType
     confidence: ConfidenceLevel
     is_mock: bool
+    relevance: RelevanceLevel
+    relevance_score: float
     retrieved_at: datetime
     created_at: datetime

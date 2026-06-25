@@ -25,6 +25,11 @@ from app.schemas.name_normalizer import NameNormalizerInput
 from app.schemas.risk import RiskScoreInput
 from app.schemas.registry import RegistryCheckResult
 from app.schemas.source import ConfidenceLevel, SourceResult
+from app.tools.entity_matcher import (
+    annotate_relevance,
+    source_coverage_flags,
+    verified_coverage_sources,
+)
 from app.tools.web_search import count_negative_snippets, extract_suspicious_keywords
 
 
@@ -32,31 +37,8 @@ def _new_check_id() -> int:
     return int(datetime.now(timezone.utc).timestamp() * 1000)
 
 
-def _verified_web_sources(sources: list[SourceResult]) -> list[SourceResult]:
-    return [source for source in sources if not source.is_mock]
-
-
-def _source_coverage_flags(sources: list[SourceResult]) -> dict[str, int | bool]:
-    verified_sources = _verified_web_sources(sources)
-    verified_strong_sources = [
-        source
-        for source in verified_sources
-        if source.confidence in {ConfidenceLevel.medium, ConfidenceLevel.high}
-    ]
-
-    return {
-        "all_sources_mock": len(sources) == 0 or len(verified_sources) == 0,
-        "verified_non_mock_source_count": len(verified_sources),
-        "verified_strong_source_count": len(verified_strong_sources),
-        "has_high_confidence_verified_source": any(
-            source.confidence == ConfidenceLevel.high for source in verified_sources
-        ),
-        "multiple_sources_confirm": len(verified_sources) >= 2,
-    }
-
-
 def _build_unknowns(registry_check: RegistryCheckResult, sources: list[SourceResult]) -> list[str]:
-    has_real_web_sources = bool(_verified_web_sources(sources))
+    has_real_web_sources = bool(verified_coverage_sources(sources))
 
     if has_real_web_sources:
         unknowns = [
@@ -157,14 +139,19 @@ class CompanyCheckAgent:
             search_names=name_normalization.search_names,
             country=request.country,
         )
+        sources = annotate_relevance(
+            company_name=request.company_name,
+            country=request.country,
+            sources=sources,
+        )
 
         registry_check = self.registry_agent.run(
             search_names=name_normalization.search_names,
             country=request.country,
         )
 
-        verified_sources = _verified_web_sources(sources)
-        source_coverage = _source_coverage_flags(sources)
+        verified_sources = verified_coverage_sources(sources)
+        source_coverage = source_coverage_flags(sources)
         negative_snippets_count = count_negative_snippets(verified_sources)
         suspicious_keywords = extract_suspicious_keywords(verified_sources)
 

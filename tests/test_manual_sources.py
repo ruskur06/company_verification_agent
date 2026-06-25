@@ -48,6 +48,8 @@ def test_add_manual_source_success(sqlite_db):
     assert saved["source_type"] == "registry"
     assert saved["confidence"] == "high"
     assert saved["is_mock"] is False
+    assert saved["relevance"] == "relevant"
+    assert saved["relevance_score"] == 1.0
 
 
 def test_add_manual_source_is_linked_to_company_check(sqlite_db):
@@ -94,6 +96,8 @@ def test_add_manual_source_api_returns_created_source(sqlite_db):
     assert body["title"] == "SERVOCHRON GmbH - FirmenABC"
     assert body["source_type"] == "registry"
     assert body["confidence"] == "high"
+    assert body["relevance"] == "relevant"
+    assert body["relevance_score"] == 1.0
 
 
 def test_add_manual_source_api_returns_404_for_missing_company_check(sqlite_db):

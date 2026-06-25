@@ -32,7 +32,15 @@ from app.schemas.company_check import (
 )
 from app.schemas.human_review import HumanReviewCreate, HumanReviewRecordResponse
 from app.schemas.risk import HumanReviewStatus, RiskLevel, RiskScoreInput
-from app.schemas.source import ConfidenceLevel, ManualSourceCreate, SavedSourceResponse, SourceResult, SourceType
+from app.schemas.source import (
+    ConfidenceLevel,
+    ManualSourceCreate,
+    RelevanceLevel,
+    SavedSourceResponse,
+    SourceResult,
+    SourceType,
+)
+from app.tools.entity_matcher import source_coverage_flags, verified_coverage_sources
 from app.tools.web_search import count_negative_snippets, extract_suspicious_keywords
 
 _report_agent = ReportAgent()
@@ -154,6 +162,8 @@ def _db_source_to_source_result(source_data: dict) -> SourceResult:
         retrieved_at=source_data["retrieved_at"],
         confidence=ConfidenceLevel(source_data.get("confidence") or "low"),
         is_mock=bool(source_data.get("is_mock", False)),
+        relevance=RelevanceLevel(source_data.get("relevance") or "uncertain"),
+        relevance_score=float(source_data.get("relevance_score", 0.0)),
     )
 
 
@@ -222,16 +232,13 @@ def refresh_company_check_report(company_check_id: int | str) -> RefreshReportRe
         )
 
     sources = [_db_source_to_source_result(source) for source in get_sources_for_company_check(check_id_str)]
-    verified_sources = [source for source in sources if not source.is_mock]
-    all_sources_mock = len(sources) == 0 or len(verified_sources) == 0
-    has_high_confidence_verified_source = any(
-        source.confidence == ConfidenceLevel.high for source in verified_sources
+    verified_sources = verified_coverage_sources(sources)
+    source_coverage = source_coverage_flags(sources)
+    all_sources_mock = bool(source_coverage["all_sources_mock"])
+    has_high_confidence_verified_source = bool(
+        source_coverage["has_high_confidence_verified_source"]
     )
-    verified_strong_source_count = sum(
-        1
-        for source in verified_sources
-        if source.confidence in {ConfidenceLevel.medium, ConfidenceLevel.high}
-    )
+    verified_strong_source_count = int(source_coverage["verified_strong_source_count"])
 
     verified_sources_for_risk = verified_sources if verified_sources else []
     negative_snippets_count = count_negative_snippets(verified_sources_for_risk)
@@ -248,11 +255,11 @@ def refresh_company_check_report(company_check_id: int | str) -> RefreshReportRe
         negative_snippets_count=negative_snippets_count,
         registry_found=registry_check.registry_found,
         registry_is_mock=registry_check.is_mock,
-        multiple_sources_confirm=len(verified_sources) >= 2,
+        multiple_sources_confirm=bool(source_coverage["multiple_sources_confirm"]),
         suspicious_keywords_found=suspicious_keywords,
         source_count=len(sources),
         all_sources_mock=all_sources_mock,
-        verified_non_mock_source_count=len(verified_sources),
+        verified_non_mock_source_count=int(source_coverage["verified_non_mock_source_count"]),
         verified_strong_source_count=verified_strong_source_count,
         has_high_confidence_verified_source=has_high_confidence_verified_source,
     )

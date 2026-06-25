@@ -9,7 +9,7 @@ from app.schemas.company_check import DomainDnsInfo, DomainDnsStatus
 from app.schemas.name_normalizer import NameNormalizerInput
 from app.schemas.registry import RegistryCheckResult, RegistryCheckStatus
 from app.schemas.risk import HumanReviewStatus
-from app.schemas.source import ConfidenceLevel, SourceResult, SourceType
+from app.schemas.source import ConfidenceLevel, RelevanceLevel, SourceResult, SourceType
 
 
 def _build_agent(*, web_search_agent: MagicMock) -> CompanyCheckAgent:
@@ -93,7 +93,12 @@ def test_company_check_with_real_web_sources_does_not_use_mock_risk_factor():
     assert response.json_result is not None
     factor_names = [factor.name for factor in response.json_result.risk.factors]
     assert "mock_source_coverage_only" not in factor_names
-    assert any(name in factor_names for name in {"manual_verified_source_found", "reasonable_source_coverage"})
+    assert any(name in factor_names for name in {"verified_relevant_source_found", "reasonable_source_coverage"})
+
+    sources = response.json_result.sources
+    assert len(sources) == 2
+    assert all(source.relevance == RelevanceLevel.relevant for source in sources)
+    assert all(not source.is_mock for source in sources)
 
 
 def test_company_check_with_real_web_sources_uses_non_mock_summary_and_unknowns():
@@ -133,3 +138,28 @@ def test_company_check_with_mock_web_sources_keeps_mock_wording():
 
     unknowns_text = " ".join(response.json_result.unknowns).lower()
     assert "mock results" in unknowns_text
+
+
+def test_company_check_irrelevant_real_source_stays_in_output_but_not_coverage():
+    web_search_agent = MagicMock()
+    web_search_agent.run.return_value = [
+        _real_source(title="SERVOCHRON GmbH profile"),
+        _real_source(title="Avron GmbH unrelated listing"),
+    ]
+
+    response = _build_agent(web_search_agent=web_search_agent).run(
+        company_name="Servochron",
+        country="Austria",
+    )
+
+    assert response.json_result is not None
+    assert len(response.json_result.sources) == 2
+
+    irrelevant = next(
+        source for source in response.json_result.sources if "Avron" in source.title
+    )
+    assert irrelevant.is_mock is False
+    assert irrelevant.relevance == RelevanceLevel.irrelevant
+
+    factor_names = [factor.name for factor in response.json_result.risk.factors]
+    assert "reasonable_source_coverage" not in factor_names

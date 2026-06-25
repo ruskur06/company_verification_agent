@@ -76,9 +76,57 @@ def _ensure_company_check_lock_column() -> None:
         connection.execute(text(statement))
 
 
+def _ensure_source_relevance_columns() -> None:
+    """Add relevance fields to existing source_records tables."""
+    inspector = inspect(engine)
+    if "source_records" not in inspector.get_table_names():
+        return
+
+    columns = {column["name"] for column in inspector.get_columns("source_records")}
+    dialect_name = engine.dialect.name
+
+    statements: list[str] = []
+    if "relevance" not in columns:
+        if dialect_name == "postgresql":
+            statements.append(
+                "ALTER TABLE source_records "
+                "ADD COLUMN IF NOT EXISTS relevance VARCHAR(20) NOT NULL DEFAULT 'uncertain'"
+            )
+        else:
+            statements.append(
+                "ALTER TABLE source_records "
+                "ADD COLUMN relevance VARCHAR(20) NOT NULL DEFAULT 'uncertain'"
+            )
+
+    if "relevance_score" not in columns:
+        if dialect_name == "postgresql":
+            statements.append(
+                "ALTER TABLE source_records "
+                "ADD COLUMN IF NOT EXISTS relevance_score DOUBLE PRECISION NOT NULL DEFAULT 0.0"
+            )
+        elif dialect_name == "sqlite":
+            statements.append(
+                "ALTER TABLE source_records "
+                "ADD COLUMN relevance_score REAL NOT NULL DEFAULT 0.0"
+            )
+        else:
+            statements.append(
+                "ALTER TABLE source_records "
+                "ADD COLUMN relevance_score DOUBLE PRECISION NOT NULL DEFAULT 0.0"
+            )
+
+    if not statements:
+        return
+
+    with engine.begin() as connection:
+        for statement in statements:
+            connection.execute(text(statement))
+
+
 def init_db() -> None:
     """Create all tables. Called on startup."""
     from app.db import models  # noqa: F401
 
     Base.metadata.create_all(bind=engine)
     _ensure_company_check_lock_column()
+    _ensure_source_relevance_columns()

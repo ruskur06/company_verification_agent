@@ -169,15 +169,15 @@ def calculate_risk_score(input_data: RiskScoreInput) -> RiskScoreResult:
     elif verified_count == 1:
         if input_data.has_high_confidence_verified_source:
             add_factor(
-                "manual_verified_source_found",
+                "verified_relevant_source_found",
                 -40,
-                "A manually verified high-confidence source is available and improves verification confidence.",
+                "A high-confidence relevant non-mock source is available and improves verification confidence.",
             )
         else:
             add_factor(
-                "manual_verified_source_found",
+                "verified_relevant_source_found",
                 -15,
-                "A manually verified non-mock source is available and improves verification confidence.",
+                "A relevant non-mock source is available and improves verification confidence.",
             )
     else:
         add_factor(
