@@ -1,18 +1,15 @@
 """Web search tool.
 
-Current MVP behavior:
-- returns deterministic mock search results
-- does not call real search APIs
-- marks all mock results with is_mock=True
-
-Later this file can be connected to Bing, Brave, Tavily, SerpAPI, Google CSE, etc.
+Supports mock results for local development and optional Tavily provider.
 """
 
 from __future__ import annotations
 
 from datetime import datetime, timezone
 
+from app.core.config import settings
 from app.schemas.source import ConfidenceLevel, SourceResult, SourceType
+from app.tools.tavily_search import TavilySearchError, tavily_search
 
 
 def _dedupe_case_insensitive(names: list[str]) -> list[str]:
@@ -109,22 +106,11 @@ def _mock_results_for_name(
     ]
 
 
-def web_search(
-    search_names: list[str],
+def _mock_web_search(
+    candidates: list[str],
     country: str,
-    max_results: int = 5,
+    max_results: int,
 ) -> list[SourceResult]:
-    """Return mock search results across normalized company name variants.
-
-    This is intentionally deterministic for local development and tests.
-    It does not claim that real sources were checked.
-    """
-    country = country.strip()
-    candidates = _dedupe_case_insensitive(search_names)
-
-    if not candidates:
-        return []
-
     now = datetime.now(timezone.utc)
     per_name = [_mock_results_for_name(name, country, now) for name in candidates]
 
@@ -144,6 +130,49 @@ def web_search(
         template_index += 1
 
     return results
+
+
+def _tavily_web_search(
+    primary_name: str,
+    country: str,
+    max_results: int,
+) -> list[SourceResult]:
+    return tavily_search(
+        company_name=primary_name,
+        country=country,
+        max_results=max_results,
+        api_key=settings.web_search_api_key,
+        timeout_seconds=settings.web_search_timeout_seconds,
+    )
+
+
+def web_search(
+    search_names: list[str],
+    country: str,
+    max_results: int = 5,
+) -> list[SourceResult]:
+    """Return web search results using the configured provider with mock fallback."""
+    country = country.strip()
+    candidates = _dedupe_case_insensitive(search_names)
+
+    if not candidates:
+        return []
+
+    effective_max_results = max_results or settings.web_search_max_results
+
+    if settings.web_search_provider == "tavily" and settings.web_search_api_key:
+        try:
+            tavily_results = _tavily_web_search(
+                candidates[0],
+                country,
+                effective_max_results,
+            )
+            if tavily_results:
+                return tavily_results[:effective_max_results]
+        except TavilySearchError:
+            pass
+
+    return _mock_web_search(candidates, country, effective_max_results)
 
 
 def count_negative_snippets(sources: list[SourceResult]) -> int:

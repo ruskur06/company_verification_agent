@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     # Web search
     web_search_api_key: str = ""
     web_search_provider: str = "mock"
+    web_search_max_results: int = 5
+    web_search_timeout_seconds: float = 10.0
 
     # Database
     database_url: str = (
