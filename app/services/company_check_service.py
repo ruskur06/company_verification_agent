@@ -42,6 +42,7 @@ from app.schemas.source import (
 )
 from app.tools.entity_matcher import source_coverage_flags, verified_coverage_sources
 from app.tools.web_search import count_negative_snippets, extract_suspicious_keywords
+from app.tools.website_candidate_matcher import find_website_candidate
 
 _report_agent = ReportAgent()
 _check_agent = CompanyCheckAgent(report_agent=_report_agent)
@@ -246,9 +247,12 @@ def refresh_company_check_report(company_check_id: int | str) -> RefreshReportRe
 
     domain_dns = result.domain_dns
     registry_check = result.registry_check
+    website_candidate = find_website_candidate(result.company.name, sources)
+    has_website = bool(result.company.domain) and domain_dns.https_available
 
     risk_input = RiskScoreInput(
-        has_website=bool(result.company.domain) and domain_dns.https_available,
+        has_website=has_website,
+        has_website_candidate=website_candidate is not None and not has_website,
         domain_resolves=domain_dns.has_a_record,
         has_mx_record=domain_dns.has_mx_record,
         https_available=domain_dns.https_available,
@@ -266,6 +270,7 @@ def refresh_company_check_report(company_check_id: int | str) -> RefreshReportRe
     risk_result = _risk_agent.run(risk_input)
 
     result.sources = sources
+    result.website_candidate = website_candidate
     result.summary = _build_refreshed_summary(
         result,
         has_verified_sources=bool(verified_sources),

@@ -59,6 +59,32 @@ def test_result_template_does_not_use_misleading_preliminary_risk_score_label():
     assert "Preliminary verification score (legacy)" in template
 
 
+def test_result_template_shows_website_candidate_section():
+    template = Path("app/web/templates/result.html").read_text(encoding="utf-8")
+
+    assert "Website Candidate (pending verification)" in template
+    assert "not a confirmed official website" in template
+
+
+def test_report_includes_website_candidate_section_when_present():
+    data = valid_company_check_data()
+    data["website_candidate"] = {
+        "candidate_url": "https://servochron.com",
+        "candidate_domain": "servochron.com",
+        "score": 0.8,
+        "confidence": "medium",
+        "reasons": ["domain_contains_company_name", "https_scheme"],
+        "source_title": "SERVOCHRON GmbH official website",
+        "is_verified": False,
+    }
+
+    markdown = ReportAgent().build_markdown(CompanyCheckResult.model_validate(data))
+
+    assert "Website Candidate (pending verification)" in markdown
+    assert "servochron.com" in markdown
+    assert "candidate pending human verification" in markdown
+
+
 def test_cli_source_does_not_use_misleading_preliminary_risk_score_label():
     cli_source = Path("app/cli.py").read_text(encoding="utf-8")
 

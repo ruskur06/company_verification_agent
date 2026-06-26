@@ -52,11 +52,16 @@ def _build_agent(*, web_search_agent: MagicMock) -> CompanyCheckAgent:
     )
 
 
-def _real_source(*, title: str, confidence: ConfidenceLevel = ConfidenceLevel.medium) -> SourceResult:
+def _real_source(
+    *,
+    title: str,
+    url: str | None = None,
+    confidence: ConfidenceLevel = ConfidenceLevel.medium,
+) -> SourceResult:
     now = datetime.now(timezone.utc)
     return SourceResult(
         title=title,
-        url=f"https://example.com/{title.lower().replace(' ', '-')}",
+        url=url or f"https://example.com/{title.lower().replace(' ', '-')}",
         snippet=f"Real web search snippet for {title}.",
         source_type=SourceType.search_result,
         retrieved_at=now,
@@ -167,3 +172,29 @@ def test_company_check_irrelevant_real_source_stays_in_output_but_not_coverage()
 
     factor_names = [factor.name for factor in response.json_result.risk.factors]
     assert "reasonable_source_coverage" not in factor_names
+
+
+def test_company_check_relevant_servochron_url_detects_website_candidate():
+    web_search_agent = MagicMock()
+    web_search_agent.run.return_value = [
+        _real_source(
+            title="SERVOCHRON GmbH official website",
+            url="https://servochron.com",
+        ),
+    ]
+
+    response = _build_agent(web_search_agent=web_search_agent).run(
+        company_name="Servochron",
+        country="Austria",
+        domain=None,
+    )
+
+    assert response.json_result is not None
+    candidate = response.json_result.website_candidate
+    assert candidate is not None
+    assert candidate.candidate_domain == "servochron.com"
+    assert candidate.is_verified is False
+
+    factor_names = [factor.name for factor in response.json_result.risk.factors]
+    assert "website_candidate_found_pending_verification" in factor_names
+    assert "official_website_not_found" not in factor_names

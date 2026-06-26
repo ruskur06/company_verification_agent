@@ -31,6 +31,7 @@ from app.tools.entity_matcher import (
     verified_coverage_sources,
 )
 from app.tools.web_search import count_negative_snippets, extract_suspicious_keywords
+from app.tools.website_candidate_matcher import find_website_candidate
 
 
 def _new_check_id() -> int:
@@ -162,9 +163,12 @@ class CompanyCheckAgent:
         source_coverage = source_coverage_flags(sources)
         negative_snippets_count = count_negative_snippets(verified_sources)
         suspicious_keywords = extract_suspicious_keywords(verified_sources)
+        website_candidate = find_website_candidate(request.company_name, sources)
+        has_website = bool(effective_domain) and dns_info.https_available
 
         risk_input = RiskScoreInput(
-            has_website=bool(effective_domain) and dns_info.https_available,
+            has_website=has_website,
+            has_website_candidate=website_candidate is not None and not has_website,
             domain_resolves=dns_info.has_a_record,
             has_mx_record=dns_info.has_mx_record,
             https_available=dns_info.https_available,
@@ -225,6 +229,7 @@ class CompanyCheckAgent:
                 "Replace mock web search with real source verification.",
             ],
             unknowns=_build_unknowns(registry_check, sources),
+            website_candidate=website_candidate,
             created_at=datetime.now(timezone.utc),
         )
 

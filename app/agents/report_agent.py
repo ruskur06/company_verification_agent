@@ -110,6 +110,27 @@ def _format_registry_markdown(result: CompanyCheckResult) -> str:
     )
 
 
+def _format_website_candidate_markdown(result: CompanyCheckResult) -> str:
+    candidate = result.website_candidate
+    if candidate is None:
+        return "- No website candidate detected from relevant sources."
+
+    return "\n".join(
+        [
+            "- Status: **candidate pending human verification**",
+            f"- Candidate URL: `{candidate.candidate_url}`",
+            f"- Candidate domain: `{candidate.candidate_domain}`",
+            f"- Score: `{candidate.score}`",
+            f"- Confidence: `{candidate.confidence.value}`",
+            f"- Source title: {candidate.source_title}",
+            f"- Verified official website: `{candidate.is_verified}`",
+            f"- Reasons: {', '.join(candidate.reasons)}",
+            "",
+            "This is a candidate website from relevant web search results, not a confirmed official website.",
+        ]
+    )
+
+
 def _format_verification_risk_overview_markdown(result: CompanyCheckResult) -> str:
     return "\n".join(
         [
@@ -168,6 +189,10 @@ Sources found: {len(result.sources)}
 Warnings:
 
 {_format_warnings_markdown(result.domain_dns.warnings)}
+
+## 5a. Website Candidate (pending verification)
+
+{_format_website_candidate_markdown(result)}
 
 ## 6. Registry Check
 

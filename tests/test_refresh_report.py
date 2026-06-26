@@ -217,3 +217,40 @@ def test_refresh_report_irrelevant_real_source_does_not_strengthen_coverage(sqli
         factor.name == "verified_relevant_source_found"
         for factor in response.json_result.risk.factors
     )
+
+
+def test_refresh_report_recomputes_website_candidate_from_saved_sources(sqlite_db):
+    _write_initial_json()
+    save_company_check(sample_check_result(CHECK_ID))
+
+    session = sqlite_db()
+    try:
+        session.add(
+            SourceRecord(
+                check_id=CHECK_ID,
+                title="SERVOCHRON GmbH official website",
+                url="https://servochron.com",
+                snippet="Official company homepage for Servochron.",
+                source_type="search_result",
+                confidence="medium",
+                is_mock=False,
+                relevance="relevant",
+                relevance_score=0.8,
+            )
+        )
+        session.commit()
+    finally:
+        session.close()
+
+    response = refresh_company_check_report(CHECK_ID)
+
+    assert response.json_result.website_candidate is not None
+    assert response.json_result.website_candidate.candidate_domain == "servochron.com"
+
+    factor_names = [factor.name for factor in response.json_result.risk.factors]
+    assert "website_candidate_found_pending_verification" in factor_names
+    assert "official_website_not_found" not in factor_names
+
+    markdown = Path(response.markdown_report_path).read_text(encoding="utf-8")
+    assert "Website Candidate (pending verification)" in markdown
+    assert "servochron.com" in markdown

@@ -89,6 +89,15 @@ def calculate_risk_score(input_data: RiskScoreInput) -> RiskScoreResult:
             -15,
             "An official or likely official website was found.",
         )
+    elif input_data.has_website_candidate:
+        add_factor(
+            "website_candidate_found_pending_verification",
+            -8,
+            (
+                "A candidate official website was found in relevant web search results, "
+                "but ownership/official status still requires human verification."
+            ),
+        )
     else:
         add_factor(
             "official_website_not_found",
