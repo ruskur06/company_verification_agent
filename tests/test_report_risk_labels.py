@@ -1,7 +1,9 @@
+from datetime import datetime, timezone
 from pathlib import Path
 
 from app.agents.report_agent import ReportAgent
 from app.schemas.company_check import CompanyCheckResult
+from app.schemas.source import RelevanceLevel, SourceResult, SourceType
 from tests.test_json_schema import valid_company_check_data
 
 
@@ -15,6 +17,36 @@ def test_report_top_level_shows_verification_and_business_risk_labels():
     assert "Preliminary verification score (legacy):" in markdown
     assert "Preliminary Risk Score" not in markdown
     assert "Preliminary risk score" not in markdown.lower()
+
+
+def test_report_source_section_shows_relevance_fields():
+    data = valid_company_check_data()
+    data["sources"] = [
+        SourceResult(
+            title="Avron GmbH profile",
+            url="https://example.com/avron-gmbh",
+            snippet="Avron GmbH company information.",
+            source_type=SourceType.search_result,
+            retrieved_at=datetime.now(timezone.utc),
+            relevance=RelevanceLevel.irrelevant,
+            relevance_score=0.1,
+            relevance_reasons=["country_mentioned", "no_company_name_overlap"],
+        ).model_dump(mode="json")
+    ]
+
+    markdown = ReportAgent().build_markdown(CompanyCheckResult.model_validate(data))
+
+    assert "Relevance: `irrelevant`" in markdown
+    assert "Relevance score: `0.1`" in markdown
+    assert "Relevance reasons: country_mentioned, no_company_name_overlap" in markdown
+
+
+def test_result_template_shows_source_relevance_fields():
+    template = Path("app/web/templates/result.html").read_text(encoding="utf-8")
+
+    assert "relevance:" in template
+    assert "relevance_score:" in template
+    assert "Relevance reasons:" in template
 
 
 def test_result_template_does_not_use_misleading_preliminary_risk_score_label():

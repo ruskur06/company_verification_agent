@@ -91,6 +91,10 @@ def test_company_check_with_real_web_sources_does_not_use_mock_risk_factor():
     )
 
     assert response.json_result is not None
+    assert (
+        response.json_result.summary.confidence.value
+        == response.json_result.risk.verification_confidence.value
+    )
     factor_names = [factor.name for factor in response.json_result.risk.factors]
     assert "mock_source_coverage_only" not in factor_names
     assert any(name in factor_names for name in {"verified_relevant_source_found", "reasonable_source_coverage"})

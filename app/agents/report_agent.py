@@ -24,6 +24,18 @@ def _report_path(check_id: int) -> Path:
     return REPORTS_DIR / f"company_check_{check_id}.md"
 
 
+def _format_source_relevance_markdown(source: SourceResult) -> list[str]:
+    lines = [
+        f"  - Relevance: `{source.relevance.value}`",
+        f"  - Relevance score: `{source.relevance_score}`",
+    ]
+    if source.relevance_reasons:
+        lines.append(
+            f"  - Relevance reasons: {', '.join(source.relevance_reasons)}"
+        )
+    return lines
+
+
 def _format_sources_markdown(sources: list[SourceResult]) -> str:
     if not sources:
         return "- No sources found."
@@ -43,6 +55,7 @@ def _format_sources_markdown(sources: list[SourceResult]) -> str:
                     f"  - URL: `{source.url}`",
                     f"  - Type: `{source.source_type.value}`",
                     f"  - Confidence: `{source.confidence.value}`",
+                    *_format_source_relevance_markdown(source),
                     f"  - Evidence type: `{evidence_label}`",
                     f"  - Snippet: {source.snippet}",
                 ]

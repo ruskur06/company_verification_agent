@@ -141,9 +141,20 @@
                                     <strong>{{ source.source_type.value }}</strong>,
                                     confidence:
                                     <strong>{{ source.confidence.value }}</strong>,
+                                    relevance:
+                                    <strong>{{ source.relevance.value }}</strong>,
+                                    relevance_score:
+                                    <strong>{{ source.relevance_score }}</strong>,
                                     retrieved at:
                                     <strong>{{ source.retrieved_at }}</strong>
                                 </p>
+
+                                {% if source.relevance_reasons %}
+                                    <p class="muted">
+                                        Relevance reasons:
+                                        <strong>{{ source.relevance_reasons | join(', ') }}</strong>
+                                    </p>
+                                {% endif %}
                             </li>
                         {% endfor %}
                     </ul>

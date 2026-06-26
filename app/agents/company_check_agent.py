@@ -22,7 +22,7 @@ from app.schemas.company_check import (
     SummaryInfo,
 )
 from app.schemas.name_normalizer import NameNormalizerInput
-from app.schemas.risk import RiskScoreInput
+from app.schemas.risk import RiskLevel, RiskScoreInput
 from app.schemas.registry import RegistryCheckResult
 from app.schemas.source import ConfidenceLevel, SourceResult
 from app.tools.entity_matcher import (
@@ -35,6 +35,14 @@ from app.tools.web_search import count_negative_snippets, extract_suspicious_key
 
 def _new_check_id() -> int:
     return int(datetime.now(timezone.utc).timestamp() * 1000)
+
+
+def _summary_confidence_from_verification(level: RiskLevel) -> ConfidenceLevel:
+    return {
+        RiskLevel.low: ConfidenceLevel.low,
+        RiskLevel.medium: ConfidenceLevel.medium,
+        RiskLevel.high: ConfidenceLevel.high,
+    }[level]
 
 
 def _build_unknowns(registry_check: RegistryCheckResult, sources: list[SourceResult]) -> list[str]:
@@ -188,7 +196,9 @@ class CompanyCheckAgent:
             summary=SummaryInfo(
                 short_description=f"Preliminary local check for {search_name}.",
                 overall_assessment=_build_overall_assessment(bool(verified_sources)),
-                confidence=ConfidenceLevel.low,
+                confidence=_summary_confidence_from_verification(
+                    risk_result.verification_confidence
+                ),
             ),
             sources=sources,
             domain_dns=dns_info,
