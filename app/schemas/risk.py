@@ -34,6 +34,9 @@ class RiskFactor(BaseModel):
 class RiskScoreInput(BaseModel):
     has_website: bool = False
     has_website_candidate: bool = False
+    user_domain_provided: bool = False
+    candidate_domain_dns_succeeds: bool = False
+    candidate_has_mx_record: bool = False
     domain_resolves: bool = False
     has_mx_record: bool = False
     https_available: bool = False

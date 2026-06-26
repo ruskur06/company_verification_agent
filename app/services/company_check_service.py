@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from app.agents.company_check_agent import CompanyCheckAgent
+from app.agents.domain_agent import DomainAgent
 from app.agents.report_agent import ReportAgent, json_path_for_check
 from app.agents.risk_agent import RiskAgent
 from app.db.repositories import (
@@ -41,10 +42,12 @@ from app.schemas.source import (
     SourceType,
 )
 from app.tools.entity_matcher import source_coverage_flags, verified_coverage_sources
+from app.tools.risk_input_helpers import build_domain_risk_fields
 from app.tools.web_search import count_negative_snippets, extract_suspicious_keywords
 from app.tools.website_candidate_matcher import find_website_candidate
 
 _report_agent = ReportAgent()
+_domain_agent = DomainAgent()
 _check_agent = CompanyCheckAgent(report_agent=_report_agent)
 _risk_agent = RiskAgent()
 
@@ -248,14 +251,19 @@ def refresh_company_check_report(company_check_id: int | str) -> RefreshReportRe
     domain_dns = result.domain_dns
     registry_check = result.registry_check
     website_candidate = find_website_candidate(result.company.name, sources)
-    has_website = bool(result.company.domain) and domain_dns.https_available
+    candidate_domain_dns = None
+    if website_candidate is not None:
+        candidate_domain_dns = _domain_agent.run(website_candidate.candidate_domain)
+
+    domain_risk_fields = build_domain_risk_fields(
+        user_domain=result.company.domain,
+        domain_dns=domain_dns,
+        candidate_domain_dns=candidate_domain_dns,
+        website_candidate=website_candidate,
+    )
 
     risk_input = RiskScoreInput(
-        has_website=has_website,
-        has_website_candidate=website_candidate is not None and not has_website,
-        domain_resolves=domain_dns.has_a_record,
-        has_mx_record=domain_dns.has_mx_record,
-        https_available=domain_dns.https_available,
+        **domain_risk_fields,
         negative_snippets_count=negative_snippets_count,
         registry_found=registry_check.registry_found,
         registry_is_mock=registry_check.is_mock,
@@ -271,6 +279,7 @@ def refresh_company_check_report(company_check_id: int | str) -> RefreshReportRe
 
     result.sources = sources
     result.website_candidate = website_candidate
+    result.candidate_domain_dns = candidate_domain_dns
     result.summary = _build_refreshed_summary(
         result,
         has_verified_sources=bool(verified_sources),

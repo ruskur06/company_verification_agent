@@ -107,16 +107,26 @@ def calculate_risk_score(input_data: RiskScoreInput) -> RiskScoreResult:
 
     if input_data.domain_resolves:
         add_factor("domain_resolves", -10, "The provided domain resolves successfully.")
-    else:
+    elif input_data.user_domain_provided or not input_data.candidate_domain_dns_succeeds:
         add_factor(
             "domain_does_not_resolve",
             20,
             "The provided domain does not resolve or was not confirmed; this increases verification risk.",
         )
 
+    if input_data.candidate_domain_dns_succeeds and not input_data.user_domain_provided:
+        add_factor(
+            "candidate_domain_resolves_pending_ownership_verification",
+            -8,
+            (
+                "Candidate website domain resolves and HTTPS is available, "
+                "but official ownership still requires human verification."
+            ),
+        )
+
     if input_data.has_mx_record:
         add_factor("mx_record_found", -5, "MX records were found for the domain.")
-    else:
+    elif input_data.user_domain_provided or not input_data.candidate_has_mx_record:
         add_factor(
             "mx_record_missing",
             5,
@@ -125,7 +135,7 @@ def calculate_risk_score(input_data: RiskScoreInput) -> RiskScoreResult:
 
     if input_data.https_available:
         add_factor("https_available", -5, "HTTPS appears to be available.")
-    else:
+    elif input_data.user_domain_provided or not input_data.candidate_domain_dns_succeeds:
         add_factor("https_not_confirmed", 5, "HTTPS availability was not confirmed.")
 
     if _registry_confirmed(input_data):

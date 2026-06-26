@@ -56,13 +56,14 @@ def _real_source(
     *,
     title: str,
     url: str | None = None,
+    snippet: str | None = None,
     confidence: ConfidenceLevel = ConfidenceLevel.medium,
 ) -> SourceResult:
     now = datetime.now(timezone.utc)
     return SourceResult(
         title=title,
         url=url or f"https://example.com/{title.lower().replace(' ', '-')}",
-        snippet=f"Real web search snippet for {title}.",
+        snippet=snippet or f"Real web search snippet for {title}.",
         source_type=SourceType.search_result,
         retrieved_at=now,
         confidence=confidence,
@@ -180,10 +181,26 @@ def test_company_check_relevant_servochron_url_detects_website_candidate():
         _real_source(
             title="SERVOCHRON GmbH official website",
             url="https://servochron.com",
+            snippet="Official company homepage for Servochron.",
         ),
     ]
 
-    response = _build_agent(web_search_agent=web_search_agent).run(
+    domain_agent = MagicMock()
+    domain_agent.run.side_effect = [
+        DomainDnsInfo(status=DomainDnsStatus.not_provided),
+        DomainDnsInfo(
+            status=DomainDnsStatus.checked,
+            domain="servochron.com",
+            has_a_record=True,
+            has_mx_record=True,
+            https_available=True,
+        ),
+    ]
+
+    agent = _build_agent(web_search_agent=web_search_agent)
+    agent.domain_agent = domain_agent
+
+    response = agent.run(
         company_name="Servochron",
         country="Austria",
         domain=None,
@@ -194,7 +211,13 @@ def test_company_check_relevant_servochron_url_detects_website_candidate():
     assert candidate is not None
     assert candidate.candidate_domain == "servochron.com"
     assert candidate.is_verified is False
+    assert response.json_result.candidate_domain_dns is not None
+    assert response.json_result.candidate_domain_dns.domain == "servochron.com"
 
     factor_names = [factor.name for factor in response.json_result.risk.factors]
     assert "website_candidate_found_pending_verification" in factor_names
+    assert "candidate_domain_resolves_pending_ownership_verification" in factor_names
     assert "official_website_not_found" not in factor_names
+    assert "domain_does_not_resolve" not in factor_names
+    assert "https_not_confirmed" not in factor_names
+    assert "mx_record_missing" not in factor_names

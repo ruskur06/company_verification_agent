@@ -84,6 +84,7 @@ class CompanyCheckResult(BaseModel):
     summary: SummaryInfo
     sources: list[SourceResult]
     domain_dns: DomainDnsInfo
+    candidate_domain_dns: Optional[DomainDnsInfo] = None
     registry_check: RegistryCheckResult
     risk: RiskInfo
     manual_verification_checklist: list[str]

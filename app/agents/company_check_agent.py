@@ -18,6 +18,7 @@ from app.schemas.company_check import (
     CompanyCheckResponse,
     CompanyCheckResult,
     CompanyInfo,
+    DomainDnsInfo,
     RiskInfo,
     SummaryInfo,
 )
@@ -30,6 +31,7 @@ from app.tools.entity_matcher import (
     source_coverage_flags,
     verified_coverage_sources,
 )
+from app.tools.risk_input_helpers import build_domain_risk_fields
 from app.tools.web_search import count_negative_snippets, extract_suspicious_keywords
 from app.tools.website_candidate_matcher import find_website_candidate
 
@@ -134,15 +136,11 @@ class CompanyCheckAgent:
         )
 
         search_name = name_normalization.normalized_name
-        effective_domain = request.domain or (
-            name_normalization.domain_candidates[0]
-            if name_normalization.domain_candidates
-            else None
-        )
+        user_domain = request.domain
 
         check_id = _new_check_id()
 
-        dns_info = self.domain_agent.run(effective_domain)
+        dns_info = self.domain_agent.run(user_domain)
 
         sources = self.web_search_agent.run(
             search_names=name_normalization.search_names,
@@ -164,14 +162,19 @@ class CompanyCheckAgent:
         negative_snippets_count = count_negative_snippets(verified_sources)
         suspicious_keywords = extract_suspicious_keywords(verified_sources)
         website_candidate = find_website_candidate(request.company_name, sources)
-        has_website = bool(effective_domain) and dns_info.https_available
+        candidate_domain_dns: DomainDnsInfo | None = None
+        if website_candidate is not None:
+            candidate_domain_dns = self.domain_agent.run(website_candidate.candidate_domain)
+
+        domain_risk_fields = build_domain_risk_fields(
+            user_domain=user_domain,
+            domain_dns=dns_info,
+            candidate_domain_dns=candidate_domain_dns,
+            website_candidate=website_candidate,
+        )
 
         risk_input = RiskScoreInput(
-            has_website=has_website,
-            has_website_candidate=website_candidate is not None and not has_website,
-            domain_resolves=dns_info.has_a_record,
-            has_mx_record=dns_info.has_mx_record,
-            https_available=dns_info.https_available,
+            **domain_risk_fields,
             negative_snippets_count=negative_snippets_count,
             registry_found=registry_check.registry_found,
             registry_is_mock=registry_check.is_mock,
@@ -206,6 +209,7 @@ class CompanyCheckAgent:
             ),
             sources=sources,
             domain_dns=dns_info,
+            candidate_domain_dns=candidate_domain_dns,
             registry_check=registry_check,
             risk=RiskInfo(
                 preliminary_score=risk_result.score,

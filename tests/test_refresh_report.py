@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
@@ -8,6 +9,7 @@ from sqlalchemy.orm import sessionmaker
 from app.agents.report_agent import json_path_for_check
 from app.db import database
 from app.db.models import ReportRecord, SourceRecord
+from app.schemas.company_check import DomainDnsInfo, DomainDnsStatus
 from app.db.repositories import (
     add_source_to_company_check,
     get_sources_for_company_check,
@@ -45,6 +47,10 @@ def sqlite_db(tmp_path, monkeypatch):
     json_dir.mkdir(parents=True)
     reports_dir.mkdir(parents=True)
     monkeypatch.chdir(tmp_path)
+
+    mock_domain_agent = MagicMock()
+    mock_domain_agent.run.return_value = DomainDnsInfo(status=DomainDnsStatus.not_provided)
+    monkeypatch.setattr("app.services.company_check_service._domain_agent", mock_domain_agent)
 
     yield session_factory
 
@@ -219,7 +225,16 @@ def test_refresh_report_irrelevant_real_source_does_not_strengthen_coverage(sqli
     )
 
 
-def test_refresh_report_recomputes_website_candidate_from_saved_sources(sqlite_db):
+def test_refresh_report_recomputes_website_candidate_from_saved_sources(sqlite_db, monkeypatch):
+    mock_domain_agent = MagicMock()
+    mock_domain_agent.run.return_value = DomainDnsInfo(
+        status=DomainDnsStatus.checked,
+        domain="servochron.com",
+        has_a_record=True,
+        https_available=True,
+    )
+    monkeypatch.setattr("app.services.company_check_service._domain_agent", mock_domain_agent)
+
     _write_initial_json()
     save_company_check(sample_check_result(CHECK_ID))
 
@@ -246,11 +261,16 @@ def test_refresh_report_recomputes_website_candidate_from_saved_sources(sqlite_d
 
     assert response.json_result.website_candidate is not None
     assert response.json_result.website_candidate.candidate_domain == "servochron.com"
+    assert response.json_result.candidate_domain_dns is not None
+    assert response.json_result.candidate_domain_dns.domain == "servochron.com"
+    mock_domain_agent.run.assert_called_once_with("servochron.com")
 
     factor_names = [factor.name for factor in response.json_result.risk.factors]
     assert "website_candidate_found_pending_verification" in factor_names
+    assert "candidate_domain_resolves_pending_ownership_verification" in factor_names
     assert "official_website_not_found" not in factor_names
 
     markdown = Path(response.markdown_report_path).read_text(encoding="utf-8")
     assert "Website Candidate (pending verification)" in markdown
+    assert "Candidate Domain DNS/HTTPS (pending ownership verification)" in markdown
     assert "servochron.com" in markdown

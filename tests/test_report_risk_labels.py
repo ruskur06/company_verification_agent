@@ -59,6 +59,40 @@ def test_result_template_does_not_use_misleading_preliminary_risk_score_label():
     assert "Preliminary verification score (legacy)" in template
 
 
+def test_report_includes_candidate_domain_dns_section_when_present():
+    data = valid_company_check_data()
+    data["website_candidate"] = {
+        "candidate_url": "https://servochron.com",
+        "candidate_domain": "servochron.com",
+        "score": 0.8,
+        "confidence": "medium",
+        "reasons": ["domain_contains_company_name", "https_scheme"],
+        "source_title": "SERVOCHRON GmbH official website",
+        "is_verified": False,
+    }
+    data["candidate_domain_dns"] = {
+        "status": "checked",
+        "domain": "servochron.com",
+        "has_a_record": True,
+        "has_mx_record": False,
+        "has_txt_record": False,
+        "https_available": True,
+        "warnings": [],
+    }
+
+    markdown = ReportAgent().build_markdown(CompanyCheckResult.model_validate(data))
+
+    assert "Candidate Domain DNS/HTTPS (pending ownership verification)" in markdown
+    assert "official ownership is not confirmed" in markdown
+
+
+def test_result_template_shows_candidate_domain_dns_section():
+    template = Path("app/web/templates/result.html").read_text(encoding="utf-8")
+
+    assert "Candidate Domain DNS/HTTPS (pending ownership verification)" in template
+    assert "candidate_domain_dns" in template
+
+
 def test_result_template_shows_website_candidate_section():
     template = Path("app/web/templates/result.html").read_text(encoding="utf-8")
 

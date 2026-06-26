@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from app.schemas.company_check import CompanyCheckResult
+from app.schemas.company_check import CompanyCheckResult, DomainDnsInfo
 from app.schemas.source import SourceResult
 
 JSON_DIR = Path("outputs/json")
@@ -110,6 +110,42 @@ def _format_registry_markdown(result: CompanyCheckResult) -> str:
     )
 
 
+def _format_domain_dns_markdown(domain_dns: DomainDnsInfo, *, heading: str) -> str:
+    return "\n".join(
+        [
+            f"- Status: {domain_dns.status.value}",
+            f"- Domain: {domain_dns.domain or 'Not provided'}",
+            f"- Has A record: {domain_dns.has_a_record}",
+            f"- Has MX record: {domain_dns.has_mx_record}",
+            f"- Has TXT record: {domain_dns.has_txt_record}",
+            f"- HTTPS available: {domain_dns.https_available}",
+            "",
+            f"{heading}:",
+            "",
+            _format_warnings_markdown(domain_dns.warnings),
+        ]
+    )
+
+
+def _format_candidate_domain_dns_markdown(result: CompanyCheckResult) -> str:
+    if result.candidate_domain_dns is None:
+        return "- No candidate domain DNS check was performed."
+
+    return "\n".join(
+        [
+            _format_domain_dns_markdown(
+                result.candidate_domain_dns,
+                heading="Warnings",
+            ),
+            "",
+            (
+                "Candidate domain technically resolves and HTTPS may be available, "
+                "but official ownership is not confirmed."
+            ),
+        ]
+    )
+
+
 def _format_website_candidate_markdown(result: CompanyCheckResult) -> str:
     candidate = result.website_candidate
     if candidate is None:
@@ -177,22 +213,17 @@ Sources found: {len(result.sources)}
 
 {_format_sources_markdown(result.sources)}
 
-## 5. Domain and DNS Findings
+## 5. Domain and DNS Findings (user-provided domain)
 
-- Status: {result.domain_dns.status.value}
-- Domain: {result.domain_dns.domain or "Not provided"}
-- Has A record: {result.domain_dns.has_a_record}
-- Has MX record: {result.domain_dns.has_mx_record}
-- Has TXT record: {result.domain_dns.has_txt_record}
-- HTTPS available: {result.domain_dns.https_available}
-
-Warnings:
-
-{_format_warnings_markdown(result.domain_dns.warnings)}
+{_format_domain_dns_markdown(result.domain_dns, heading="Warnings")}
 
 ## 5a. Website Candidate (pending verification)
 
 {_format_website_candidate_markdown(result)}
+
+## 5b. Candidate Domain DNS/HTTPS (pending ownership verification)
+
+{_format_candidate_domain_dns_markdown(result)}
 
 ## 6. Registry Check
 
