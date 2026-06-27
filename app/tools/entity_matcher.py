@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from urllib.parse import urlparse
 
 from app.schemas.source import ConfidenceLevel, RelevanceLevel, SourceResult
 
 RELEVANT_THRESHOLD = 0.5
 UNCERTAIN_THRESHOLD = 0.15
+PRODUCT_MANUAL_CONTEXT_CAP = 0.35
 
 LEGAL_SUFFIXES = (
     "gmbh",
@@ -25,6 +27,44 @@ LEGAL_SUFFIXES = (
     "kg",
     "co",
     "company",
+)
+
+PRODUCT_MANUAL_CONTEXT_TERMS = (
+    "manual",
+    "tutorial",
+    "construction",
+    "programming",
+    "deployment system",
+    "parachute",
+    "water rockets",
+    "water rocket",
+    "user manual",
+    "documentation",
+    "user guide",
+    "how to",
+)
+
+STRONG_COMPANY_IDENTITY_TERMS = (
+    "official website",
+    "official site",
+    "company profile",
+    "company page",
+    "business profile",
+    "business listing",
+    "company overview",
+    "company information",
+    "contact",
+    "about us",
+    "about",
+    "legal",
+    "imprint",
+    "impressum",
+    "registry",
+    "homepage",
+    "headquarters",
+    "registered office",
+    "company register",
+    "firmenabc",
 )
 
 
@@ -50,6 +90,57 @@ def strip_legal_suffixes(company_name: str) -> str:
 def company_tokens(company_name: str) -> list[str]:
     core_name = strip_legal_suffixes(company_name)
     return [token for token in core_name.split() if len(token) >= 2]
+
+
+def _extract_domain(url: str) -> str | None:
+    parsed = urlparse(url.strip())
+    if parsed.scheme not in {"http", "https"}:
+        return None
+
+    host = parsed.netloc.lower()
+    if host.startswith("www."):
+        host = host[4:]
+    return host or None
+
+
+def _domain_contains_company_token(url: str, tokens: list[str]) -> bool:
+    domain = _extract_domain(url)
+    if not domain:
+        return False
+
+    domain_compact = domain.replace("-", "").replace(".", "")
+    return any(token in domain_compact for token in tokens)
+
+
+def _has_product_manual_context(text: str) -> bool:
+    normalized = normalize_text(text)
+    return any(term in normalized for term in PRODUCT_MANUAL_CONTEXT_TERMS)
+
+
+def _has_strong_company_identity_signals(
+    *,
+    country: str,
+    title: str,
+    url: str,
+    snippet: str,
+    tokens: list[str],
+) -> bool:
+    if _domain_contains_company_token(url, tokens):
+        return True
+
+    combined = normalize_text(f"{title} {snippet}")
+    if not any(token in combined for token in tokens):
+        return False
+
+    if any(term in combined for term in STRONG_COMPANY_IDENTITY_TERMS):
+        return True
+
+    words = set(combined.split())
+    if any(suffix in words for suffix in LEGAL_SUFFIXES):
+        return True
+
+    country_norm = normalize_text(country)
+    return bool(country_norm and country_norm in combined)
 
 
 def _level_from_score(score: float) -> RelevanceLevel:
@@ -115,6 +206,16 @@ def score_relevance(company_name: str, country: str, source: SourceResult) -> Re
     if not any(token in combined for token in tokens):
         score = min(score, 0.1)
         reasons.append("no_company_name_overlap")
+
+    if _has_product_manual_context(combined) and not _has_strong_company_identity_signals(
+        country=country,
+        title=source.title,
+        url=source.url,
+        snippet=source.snippet,
+        tokens=tokens,
+    ):
+        score = min(score, PRODUCT_MANUAL_CONTEXT_CAP)
+        reasons.append("product_manual_context_without_company_identity")
 
     score = max(0.0, min(score, 1.0))
     return RelevanceResult(level=_level_from_score(score), score=score, reasons=reasons)

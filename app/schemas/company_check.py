@@ -10,6 +10,7 @@ from app.schemas.name_normalizer import NameNormalizerResult
 from app.schemas.registry import RegistryCheckResult
 from app.schemas.source import SourceResult, ConfidenceLevel
 from app.schemas.website_candidate import WebsiteCandidate
+from app.schemas.website_ownership_signals import WebsiteOwnershipSignals
 from app.schemas.risk import BusinessRiskLevel, RiskFactor, RiskLevel, HumanReviewStatus
 
 
@@ -90,6 +91,7 @@ class CompanyCheckResult(BaseModel):
     manual_verification_checklist: list[str]
     unknowns: list[str]
     website_candidate: Optional[WebsiteCandidate] = None
+    website_ownership_signals: Optional[WebsiteOwnershipSignals] = None
     created_at: datetime
 
 

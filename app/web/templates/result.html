@@ -308,6 +308,66 @@
             </section>
 
             <section class="section">
+                <h2>Website Ownership Signals (pending verification)</h2>
+
+                {% if result.website_ownership_signals %}
+                    <p class="muted">
+                        Ownership signals found, but official website status still requires human verification.
+                    </p>
+
+                    <table>
+                        <tr>
+                            <th>Status</th>
+                            <td>{{ result.website_ownership_signals.status.value }}</td>
+                        </tr>
+                        <tr>
+                            <th>Score</th>
+                            <td>{{ result.website_ownership_signals.score }}</td>
+                        </tr>
+                        <tr>
+                            <th>Confidence</th>
+                            <td>{{ result.website_ownership_signals.confidence.value }}</td>
+                        </tr>
+                        <tr>
+                            <th>Officially confirmed</th>
+                            <td>{{ result.website_ownership_signals.is_officially_confirmed }}</td>
+                        </tr>
+                    </table>
+
+                    <h3>Signals</h3>
+
+                    {% if result.website_ownership_signals.signals %}
+                        <ul>
+                            {% for signal in result.website_ownership_signals.signals %}
+                                <li>
+                                    <strong>{{ signal.name }}</strong>
+                                    — found: {{ signal.found }},
+                                    weight: {{ signal.weight }},
+                                    {{ signal.detail }}
+                                </li>
+                            {% endfor %}
+                        </ul>
+                    {% else %}
+                        <p class="muted">No ownership signals collected.</p>
+                    {% endif %}
+
+                    <h3>Warnings</h3>
+
+                    {% if result.website_ownership_signals.warnings %}
+                        <ul>
+                            {% for warning in result.website_ownership_signals.warnings %}
+                                <li>{{ warning }}</li>
+                            {% endfor %}
+                        </ul>
+                    {% else %}
+                        <p class="muted">No ownership signal warnings.</p>
+                    {% endif %}
+                {% else %}
+                    <p class="muted">Website ownership signals were not evaluated.</p>
+                {% endif %}
+            </section>
+
+            <section class="section">
                 <h2>Risk Factors</h2>
 
                 {% if result.risk.factors %}

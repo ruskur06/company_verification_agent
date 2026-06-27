@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from app.schemas.company_check import DomainDnsInfo
-from app.schemas.website_candidate import WebsiteCandidate
+from app.schemas.website_ownership_signals import OwnershipSignalsStatus, WebsiteOwnershipSignals
 
 
 def candidate_domain_dns_succeeds(candidate_domain_dns: DomainDnsInfo | None) -> bool:
@@ -36,4 +36,16 @@ def build_domain_risk_fields(
         "domain_resolves": domain_dns.has_a_record,
         "has_mx_record": domain_dns.has_mx_record,
         "https_available": domain_dns.https_available,
+    }
+
+
+def build_ownership_risk_fields(
+    website_ownership_signals: WebsiteOwnershipSignals,
+) -> dict[str, bool | float]:
+    has_ownership_signals = (
+        website_ownership_signals.status == OwnershipSignalsStatus.signals_found
+    )
+    return {
+        "has_ownership_signals": has_ownership_signals,
+        "ownership_signals_score": website_ownership_signals.score,
     }

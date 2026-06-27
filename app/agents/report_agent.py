@@ -146,6 +146,35 @@ def _format_candidate_domain_dns_markdown(result: CompanyCheckResult) -> str:
     )
 
 
+def _format_website_ownership_signals_markdown(result: CompanyCheckResult) -> str:
+    ownership = result.website_ownership_signals
+    if ownership is None:
+        return "- Website ownership signals were not evaluated."
+
+    lines = [
+        f"- Status: `{ownership.status.value}`",
+        f"- Score: `{ownership.score}`",
+        f"- Confidence: `{ownership.confidence.value}`",
+        f"- Officially confirmed: `{ownership.is_officially_confirmed}`",
+        "",
+        "Ownership signals found, but official website status still requires human verification.",
+        "",
+        "Signals:",
+    ]
+
+    if ownership.signals:
+        for signal in ownership.signals:
+            found_label = "yes" if signal.found else "no"
+            lines.append(
+                f"- `{signal.name}`: {found_label} (weight {signal.weight}) — {signal.detail}"
+            )
+    else:
+        lines.append("- None.")
+
+    lines.extend(["", "Warnings:", "", _format_list_markdown(ownership.warnings)])
+    return "\n".join(lines)
+
+
 def _format_website_candidate_markdown(result: CompanyCheckResult) -> str:
     candidate = result.website_candidate
     if candidate is None:
@@ -224,6 +253,10 @@ Sources found: {len(result.sources)}
 ## 5b. Candidate Domain DNS/HTTPS (pending ownership verification)
 
 {_format_candidate_domain_dns_markdown(result)}
+
+## 5c. Website Ownership Signals (pending verification)
+
+{_format_website_ownership_signals_markdown(result)}
 
 ## 6. Registry Check
 

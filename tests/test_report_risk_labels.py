@@ -86,6 +86,37 @@ def test_report_includes_candidate_domain_dns_section_when_present():
     assert "official ownership is not confirmed" in markdown
 
 
+def test_report_includes_website_ownership_signals_section():
+    data = valid_company_check_data()
+    data["website_ownership_signals"] = {
+        "status": "signals_found",
+        "score": 0.75,
+        "confidence": "high",
+        "signals": [
+            {
+                "name": "candidate_domain_resolves",
+                "found": True,
+                "weight": 0.15,
+                "detail": "Candidate domain resolves to an A record.",
+            }
+        ],
+        "warnings": ["Official website status still requires human verification."],
+        "is_officially_confirmed": False,
+    }
+
+    markdown = ReportAgent().build_markdown(CompanyCheckResult.model_validate(data))
+
+    assert "Website Ownership Signals (pending verification)" in markdown
+    assert "official website status still requires human verification" in markdown.lower()
+
+
+def test_result_template_shows_website_ownership_signals_section():
+    template = Path("app/web/templates/result.html").read_text(encoding="utf-8")
+
+    assert "Website Ownership Signals (pending verification)" in template
+    assert "website_ownership_signals" in template
+
+
 def test_result_template_shows_candidate_domain_dns_section():
     template = Path("app/web/templates/result.html").read_text(encoding="utf-8")
 

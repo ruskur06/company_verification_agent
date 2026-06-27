@@ -31,9 +31,13 @@ from app.tools.entity_matcher import (
     source_coverage_flags,
     verified_coverage_sources,
 )
-from app.tools.risk_input_helpers import build_domain_risk_fields
+from app.tools.risk_input_helpers import build_domain_risk_fields, build_ownership_risk_fields
 from app.tools.web_search import count_negative_snippets, extract_suspicious_keywords
 from app.tools.website_candidate_matcher import find_website_candidate
+from app.tools.website_ownership_signals import (
+    collect_ownership_signals,
+    relevant_sources_for_ownership,
+)
 
 
 def _new_check_id() -> int:
@@ -172,9 +176,18 @@ class CompanyCheckAgent:
             candidate_domain_dns=candidate_domain_dns,
             website_candidate=website_candidate,
         )
+        website_ownership_signals = collect_ownership_signals(
+            company_name=request.company_name,
+            country=request.country,
+            website_candidate=website_candidate,
+            candidate_domain_dns=candidate_domain_dns,
+            relevant_sources=relevant_sources_for_ownership(sources),
+        )
+        ownership_risk_fields = build_ownership_risk_fields(website_ownership_signals)
 
         risk_input = RiskScoreInput(
             **domain_risk_fields,
+            **ownership_risk_fields,
             negative_snippets_count=negative_snippets_count,
             registry_found=registry_check.registry_found,
             registry_is_mock=registry_check.is_mock,
@@ -191,6 +204,23 @@ class CompanyCheckAgent:
 
         risk_result = self.risk_agent.run(risk_input)
         human_review_status = self.human_review_agent.run()
+
+        checklist = [
+            "Check official company registry.",
+            "Confirm legal company name.",
+            "Verify company address.",
+            "Verify website ownership.",
+            "Check sanctions lists.",
+            "Check legal disputes and complaints.",
+        ]
+        if verified_sources:
+            checklist.append(
+                "Review real web sources and confirm relevance/ownership manually."
+            )
+        else:
+            checklist.append(
+                "Replace mock web search with real source verification."
+            )
 
         result = CompanyCheckResult(
             check_id=check_id,
@@ -223,17 +253,10 @@ class CompanyCheckAgent:
                 final_level=None,
                 human_review_status=human_review_status,
             ),
-            manual_verification_checklist=[
-                "Check official company registry.",
-                "Confirm legal company name.",
-                "Verify company address.",
-                "Verify website ownership.",
-                "Check sanctions lists.",
-                "Check legal disputes and complaints.",
-                "Replace mock web search with real source verification.",
-            ],
+            manual_verification_checklist=checklist,
             unknowns=_build_unknowns(registry_check, sources),
             website_candidate=website_candidate,
+            website_ownership_signals=website_ownership_signals,
             created_at=datetime.now(timezone.utc),
         )
 

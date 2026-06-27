@@ -37,6 +37,8 @@ class RiskScoreInput(BaseModel):
     user_domain_provided: bool = False
     candidate_domain_dns_succeeds: bool = False
     candidate_has_mx_record: bool = False
+    has_ownership_signals: bool = False
+    ownership_signals_score: float = 0.0
     domain_resolves: bool = False
     has_mx_record: bool = False
     https_available: bool = False

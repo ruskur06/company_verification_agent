@@ -138,6 +138,16 @@ def calculate_risk_score(input_data: RiskScoreInput) -> RiskScoreResult:
     elif input_data.user_domain_provided or not input_data.candidate_domain_dns_succeeds:
         add_factor("https_not_confirmed", 5, "HTTPS availability was not confirmed.")
 
+    if input_data.has_ownership_signals:
+        add_factor(
+            "website_ownership_signals_found_pending_verification",
+            -5,
+            (
+                "Website ownership signals were found, but official website status "
+                "still requires human verification."
+            ),
+        )
+
     if _registry_confirmed(input_data):
         add_factor(
             "registry_confirmed",

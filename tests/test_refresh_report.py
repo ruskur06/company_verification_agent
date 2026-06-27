@@ -263,6 +263,8 @@ def test_refresh_report_recomputes_website_candidate_from_saved_sources(sqlite_d
     assert response.json_result.website_candidate.candidate_domain == "servochron.com"
     assert response.json_result.candidate_domain_dns is not None
     assert response.json_result.candidate_domain_dns.domain == "servochron.com"
+    assert response.json_result.website_ownership_signals is not None
+    assert response.json_result.website_ownership_signals.is_officially_confirmed is False
     mock_domain_agent.run.assert_called_once_with("servochron.com")
 
     factor_names = [factor.name for factor in response.json_result.risk.factors]
@@ -273,4 +275,5 @@ def test_refresh_report_recomputes_website_candidate_from_saved_sources(sqlite_d
     markdown = Path(response.markdown_report_path).read_text(encoding="utf-8")
     assert "Website Candidate (pending verification)" in markdown
     assert "Candidate Domain DNS/HTTPS (pending ownership verification)" in markdown
+    assert "Website Ownership Signals (pending verification)" in markdown
     assert "servochron.com" in markdown

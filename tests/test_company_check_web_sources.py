@@ -181,7 +181,10 @@ def test_company_check_relevant_servochron_url_detects_website_candidate():
         _real_source(
             title="SERVOCHRON GmbH official website",
             url="https://servochron.com",
-            snippet="Official company homepage for Servochron.",
+            snippet=(
+                "Official homepage for Servochron in Austria. "
+                "Contact info@servochron.com. Privacy policy and imprint."
+            ),
         ),
     ]
 
@@ -214,10 +217,82 @@ def test_company_check_relevant_servochron_url_detects_website_candidate():
     assert response.json_result.candidate_domain_dns is not None
     assert response.json_result.candidate_domain_dns.domain == "servochron.com"
 
+    ownership = response.json_result.website_ownership_signals
+    assert ownership is not None
+    assert ownership.status.value == "signals_found"
+    assert ownership.is_officially_confirmed is False
+
     factor_names = [factor.name for factor in response.json_result.risk.factors]
     assert "website_candidate_found_pending_verification" in factor_names
+    assert "website_ownership_signals_found_pending_verification" in factor_names
     assert "candidate_domain_resolves_pending_ownership_verification" in factor_names
     assert "official_website_not_found" not in factor_names
     assert "domain_does_not_resolve" not in factor_names
     assert "https_not_confirmed" not in factor_names
     assert "mx_record_missing" not in factor_names
+
+    unknowns_text = " ".join(response.json_result.unknowns).lower()
+    assert "registry" in unknowns_text
+    assert response.json_result.risk.business_risk.value == "unknown"
+
+
+def test_water_rockets_manual_does_not_trigger_multiple_source_coverage():
+    web_search_agent = MagicMock()
+    web_search_agent.run.return_value = [
+        _real_source(
+            title="SERVOCHRON GmbH official website",
+            url="https://servochron.com",
+            snippet=(
+                "Official homepage for Servochron in Austria. "
+                "Contact info@servochron.com. Privacy policy and imprint."
+            ),
+        ),
+        _real_source(
+            title="ServoChron Parachute deployment system - Construction and Programming User Manual",
+            url="http://www.uswaterrockets.com/documents/ServoChron/manual.htm",
+            snippet="Tutorial documentation for the ServoChron deployment system.",
+        ),
+    ]
+
+    domain_agent = MagicMock()
+    domain_agent.run.side_effect = [
+        DomainDnsInfo(status=DomainDnsStatus.not_provided),
+        DomainDnsInfo(
+            status=DomainDnsStatus.checked,
+            domain="servochron.com",
+            has_a_record=True,
+            has_mx_record=True,
+            https_available=True,
+        ),
+    ]
+
+    agent = _build_agent(web_search_agent=web_search_agent)
+    agent.domain_agent = domain_agent
+
+    response = agent.run(company_name="Servochron", country="Austria", domain=None)
+
+    assert response.json_result is not None
+    manual_source = next(
+        source
+        for source in response.json_result.sources
+        if "uswaterrockets.com" in source.url
+    )
+    assert manual_source.relevance != RelevanceLevel.relevant
+
+    servochron_source = next(
+        source for source in response.json_result.sources if "servochron.com" in source.url
+    )
+    assert servochron_source.relevance == RelevanceLevel.relevant
+
+    factor_names = [factor.name for factor in response.json_result.risk.factors]
+    assert "multiple_sources_confirm" not in factor_names
+    assert "reasonable_source_coverage" not in factor_names
+    assert "verified_relevant_source_found" in factor_names
+
+    ownership = response.json_result.website_ownership_signals
+    assert ownership is not None
+    assert ownership.status.value == "signals_found"
+
+    checklist = response.json_result.manual_verification_checklist
+    assert "Review real web sources and confirm relevance/ownership manually." in checklist
+    assert "Replace mock web search with real source verification." not in checklist

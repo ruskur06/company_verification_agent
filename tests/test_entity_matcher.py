@@ -118,3 +118,30 @@ def test_annotate_relevance_does_not_mutate_original_source_result():
     assert not original.relevance_reasons
     assert annotated[0].relevance == RelevanceLevel.relevant
     assert annotated[0].relevance_score >= 0.5
+
+
+def test_us_water_rockets_servochron_manual_is_not_relevant_for_company():
+    source = _source(
+        title="ServoChron Parachute deployment system - Construction and Programming User Manual",
+        url="http://www.uswaterrockets.com/documents/ServoChron/manual.htm",
+        snippet="Tutorial documentation for the ServoChron deployment system.",
+    )
+
+    result = score_relevance("Servochron", "Austria", source)
+
+    assert result.level != RelevanceLevel.relevant
+    assert result.level in {RelevanceLevel.uncertain, RelevanceLevel.irrelevant}
+    assert "product_manual_context_without_company_identity" in result.reasons
+
+
+def test_servochron_com_official_site_remains_relevant():
+    source = _source(
+        title="SERVOCHRON GmbH official website",
+        url="https://servochron.com",
+        snippet="Official company homepage for Servochron in Austria.",
+    )
+
+    result = score_relevance("Servochron", "Austria", source)
+
+    assert result.level == RelevanceLevel.relevant
+    assert result.score >= 0.5

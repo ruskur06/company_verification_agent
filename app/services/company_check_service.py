@@ -42,9 +42,13 @@ from app.schemas.source import (
     SourceType,
 )
 from app.tools.entity_matcher import source_coverage_flags, verified_coverage_sources
-from app.tools.risk_input_helpers import build_domain_risk_fields
+from app.tools.risk_input_helpers import build_domain_risk_fields, build_ownership_risk_fields
 from app.tools.web_search import count_negative_snippets, extract_suspicious_keywords
 from app.tools.website_candidate_matcher import find_website_candidate
+from app.tools.website_ownership_signals import (
+    collect_ownership_signals,
+    relevant_sources_for_ownership,
+)
 
 _report_agent = ReportAgent()
 _domain_agent = DomainAgent()
@@ -261,9 +265,18 @@ def refresh_company_check_report(company_check_id: int | str) -> RefreshReportRe
         candidate_domain_dns=candidate_domain_dns,
         website_candidate=website_candidate,
     )
+    website_ownership_signals = collect_ownership_signals(
+        company_name=result.company.name,
+        country=result.company.country,
+        website_candidate=website_candidate,
+        candidate_domain_dns=candidate_domain_dns,
+        relevant_sources=relevant_sources_for_ownership(sources),
+    )
+    ownership_risk_fields = build_ownership_risk_fields(website_ownership_signals)
 
     risk_input = RiskScoreInput(
         **domain_risk_fields,
+        **ownership_risk_fields,
         negative_snippets_count=negative_snippets_count,
         registry_found=registry_check.registry_found,
         registry_is_mock=registry_check.is_mock,
@@ -280,6 +293,7 @@ def refresh_company_check_report(company_check_id: int | str) -> RefreshReportRe
     result.sources = sources
     result.website_candidate = website_candidate
     result.candidate_domain_dns = candidate_domain_dns
+    result.website_ownership_signals = website_ownership_signals
     result.summary = _build_refreshed_summary(
         result,
         has_verified_sources=bool(verified_sources),
