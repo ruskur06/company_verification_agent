@@ -5,6 +5,7 @@ Thin facade over the agent layer. Handles persistence helpers used by CLI/API.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -22,6 +23,7 @@ from app.db.repositories import (
     list_company_checks as list_saved_company_checks,
     save_company_check,
     update_company_check_after_refresh,
+    update_official_website_review,
 )
 from app.schemas.company_check import (
     CheckStatus,
@@ -32,6 +34,12 @@ from app.schemas.company_check import (
     SummaryInfo,
 )
 from app.schemas.human_review import HumanReviewCreate, HumanReviewRecordResponse
+from app.schemas.official_website_review import (
+    OfficialWebsiteReview,
+    OfficialWebsiteReviewCreate,
+    OfficialWebsiteReviewDecision,
+    OfficialWebsiteReviewResponse,
+)
 from app.schemas.risk import HumanReviewStatus, RiskLevel, RiskScoreInput
 from app.schemas.source import (
     ConfidenceLevel,
@@ -43,6 +51,7 @@ from app.schemas.source import (
 )
 from app.tools.entity_matcher import source_coverage_flags, verified_coverage_sources
 from app.tools.risk_input_helpers import build_domain_risk_fields, build_ownership_risk_fields
+from app.tools.official_website_review import apply_official_website_review_to_candidate
 from app.tools.web_search import count_negative_snippets, extract_suspicious_keywords
 from app.tools.website_candidate_matcher import find_website_candidate
 from app.tools.website_ownership_signals import (
@@ -161,6 +170,54 @@ def submit_human_review(
     return HumanReviewRecordResponse.model_validate(saved)
 
 
+def submit_official_website_review(
+    check_id: int | str,
+    review: OfficialWebsiteReviewCreate,
+) -> OfficialWebsiteReviewResponse:
+    """Apply human review to a website candidate and persist the decision."""
+    check_id_str = str(check_id).strip()
+    try:
+        check_id_int = int(check_id_str)
+    except ValueError as exc:
+        raise ValueError(f"Invalid company check id: {check_id_str}") from exc
+
+    result = load_company_check(check_id_int)
+    if result is None:
+        raise ValueError(f"Company check {check_id_str} was not found.")
+    if result.website_candidate is None:
+        raise ValueError(
+            f"Company check {check_id_str} has no website candidate for official website review."
+        )
+
+    official_review = OfficialWebsiteReview(
+        decision=OfficialWebsiteReviewDecision(review.decision.value),
+        note=review.note,
+        reviewed_by=review.reviewed_by,
+        reviewed_at=datetime.now(timezone.utc),
+    )
+    result.official_website_review = official_review
+    result.website_candidate = apply_official_website_review_to_candidate(
+        result.website_candidate,
+        official_review,
+    )
+
+    _report_agent.save(result)
+
+    try:
+        update_official_website_review(
+            check_id_str,
+            official_review.model_dump(mode="json"),
+        )
+    except CompanyCheckNotFoundError as exc:
+        raise ValueError(str(exc)) from exc
+
+    return OfficialWebsiteReviewResponse(
+        check_id=check_id_int,
+        official_website_review=official_review,
+        website_candidate_verified=bool(result.website_candidate.is_verified),
+    )
+
+
 def _db_source_to_source_result(source_data: dict) -> SourceResult:
     return SourceResult(
         title=source_data["title"],
@@ -254,7 +311,12 @@ def refresh_company_check_report(company_check_id: int | str) -> RefreshReportRe
 
     domain_dns = result.domain_dns
     registry_check = result.registry_check
+    preserved_review = result.official_website_review
     website_candidate = find_website_candidate(result.company.name, sources)
+    website_candidate = apply_official_website_review_to_candidate(
+        website_candidate,
+        preserved_review,
+    )
     candidate_domain_dns = None
     if website_candidate is not None:
         candidate_domain_dns = _domain_agent.run(website_candidate.candidate_domain)
@@ -294,6 +356,7 @@ def refresh_company_check_report(company_check_id: int | str) -> RefreshReportRe
     result.website_candidate = website_candidate
     result.candidate_domain_dns = candidate_domain_dns
     result.website_ownership_signals = website_ownership_signals
+    result.official_website_review = preserved_review
     result.summary = _build_refreshed_summary(
         result,
         has_verified_sources=bool(verified_sources),

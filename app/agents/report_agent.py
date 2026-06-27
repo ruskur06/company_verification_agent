@@ -5,6 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from app.schemas.company_check import CompanyCheckResult, DomainDnsInfo
+from app.schemas.official_website_review import OfficialWebsiteReviewDecision
+from app.tools.official_website_review import official_website_review_status_message
 from app.schemas.source import SourceResult
 
 JSON_DIR = Path("outputs/json")
@@ -146,10 +148,27 @@ def _format_candidate_domain_dns_markdown(result: CompanyCheckResult) -> str:
     )
 
 
+_OWNERSHIP_PENDING_NOTE = (
+    "Ownership signals found, but official website status still requires human verification."
+)
+_OWNERSHIP_APPROVED_NOTE = (
+    "Ownership signals are supporting signals only; human review decision is recorded separately."
+)
+_OWNERSHIP_APPROVED_WARNING = "Official website status still requires human verification."
+
+
 def _format_website_ownership_signals_markdown(result: CompanyCheckResult) -> str:
     ownership = result.website_ownership_signals
     if ownership is None:
         return "- Website ownership signals were not evaluated."
+
+    is_approved = (
+        result.official_website_review.decision == OfficialWebsiteReviewDecision.approved
+    )
+    ownership_note = _OWNERSHIP_APPROVED_NOTE if is_approved else _OWNERSHIP_PENDING_NOTE
+    warnings = ownership.warnings
+    if is_approved:
+        warnings = [warning for warning in warnings if warning != _OWNERSHIP_APPROVED_WARNING]
 
     lines = [
         f"- Status: `{ownership.status.value}`",
@@ -157,7 +176,9 @@ def _format_website_ownership_signals_markdown(result: CompanyCheckResult) -> st
         f"- Confidence: `{ownership.confidence.value}`",
         f"- Officially confirmed: `{ownership.is_officially_confirmed}`",
         "",
-        "Ownership signals found, but official website status still requires human verification.",
+        official_website_review_status_message(result.official_website_review) + ".",
+        "",
+        ownership_note,
         "",
         "Signals:",
     ]
@@ -171,7 +192,7 @@ def _format_website_ownership_signals_markdown(result: CompanyCheckResult) -> st
     else:
         lines.append("- None.")
 
-    lines.extend(["", "Warnings:", "", _format_list_markdown(ownership.warnings)])
+    lines.extend(["", "Warnings:", "", _format_list_markdown(warnings)])
     return "\n".join(lines)
 
 
@@ -190,6 +211,8 @@ def _format_website_candidate_markdown(result: CompanyCheckResult) -> str:
             f"- Source title: {candidate.source_title}",
             f"- Verified official website: `{candidate.is_verified}`",
             f"- Reasons: {', '.join(candidate.reasons)}",
+            "",
+            f"**{official_website_review_status_message(result.official_website_review)}**",
             "",
             "This is a candidate website from relevant web search results, not a confirmed official website.",
         ]
@@ -254,7 +277,16 @@ Sources found: {len(result.sources)}
 
 {_format_candidate_domain_dns_markdown(result)}
 
-## 5c. Website Ownership Signals (pending verification)
+## 5c. Official Website Human Review
+
+- Decision: **{result.official_website_review.decision.value}**
+- Reviewed by: {result.official_website_review.reviewed_by or "Not reviewed"}
+- Reviewed at: {result.official_website_review.reviewed_at or "Not reviewed"}
+- Note: {result.official_website_review.note or "None"}
+
+**{official_website_review_status_message(result.official_website_review)}**
+
+## 5d. Website Ownership Signals (pending verification)
 
 {_format_website_ownership_signals_markdown(result)}
 

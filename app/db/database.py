@@ -123,6 +123,45 @@ def _ensure_source_relevance_columns() -> None:
             connection.execute(text(statement))
 
 
+def _ensure_official_website_review_columns() -> None:
+    """Add official website review fields to existing company_check_records tables."""
+    inspector = inspect(engine)
+    if "company_check_records" not in inspector.get_table_names():
+        return
+
+    columns = {column["name"] for column in inspector.get_columns("company_check_records")}
+    dialect_name = engine.dialect.name
+
+    column_defs = {
+        "official_website_review_decision": "VARCHAR(20)",
+        "official_website_review_note": "TEXT",
+        "official_website_review_reviewed_by": "VARCHAR(255)",
+        "official_website_review_reviewed_at": "TIMESTAMP",
+    }
+
+    statements: list[str] = []
+    for column_name, column_type in column_defs.items():
+        if column_name in columns:
+            continue
+        if dialect_name == "postgresql":
+            statements.append(
+                f"ALTER TABLE company_check_records "
+                f"ADD COLUMN IF NOT EXISTS {column_name} {column_type}"
+            )
+        else:
+            statements.append(
+                f"ALTER TABLE company_check_records "
+                f"ADD COLUMN {column_name} {column_type}"
+            )
+
+    if not statements:
+        return
+
+    with engine.begin() as connection:
+        for statement in statements:
+            connection.execute(text(statement))
+
+
 def init_db() -> None:
     """Create all tables. Called on startup."""
     from app.db import models  # noqa: F401
@@ -130,3 +169,4 @@ def init_db() -> None:
     Base.metadata.create_all(bind=engine)
     _ensure_company_check_lock_column()
     _ensure_source_relevance_columns()
+    _ensure_official_website_review_columns()

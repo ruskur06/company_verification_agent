@@ -12,6 +12,7 @@ from app.schemas.company_check import (
     RefreshReportResponse,
 )
 from app.schemas.human_review import HumanReviewCreate, HumanReviewRecordResponse
+from app.schemas.official_website_review import OfficialWebsiteReviewCreate, OfficialWebsiteReviewResponse
 from app.schemas.risk import HumanReviewInput
 from app.schemas.source import ManualSourceCreate, SavedSourceResponse
 from app.services.company_check_service import (
@@ -23,6 +24,7 @@ from app.services.company_check_service import (
     refresh_company_check_report,
     run_company_check,
     submit_human_review,
+    submit_official_website_review,
 )
 
 router = APIRouter()
@@ -126,6 +128,21 @@ def submit_company_check_human_review(
         return submit_human_review(company_check_id, review)
     except CompanyCheckLockedError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise _http_error_from_service(exc) from exc
+
+
+@router.post(
+    "/company-check/{check_id}/official-website-review",
+    response_model=OfficialWebsiteReviewResponse,
+)
+def submit_official_website_review_endpoint(
+    check_id: int,
+    review: OfficialWebsiteReviewCreate,
+) -> OfficialWebsiteReviewResponse:
+    """Submit human review for the website candidate."""
+    try:
+        return submit_official_website_review(check_id, review)
     except ValueError as exc:
         raise _http_error_from_service(exc) from exc
 

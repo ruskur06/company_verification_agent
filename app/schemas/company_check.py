@@ -9,6 +9,7 @@ from pydantic import BaseModel, field_validator
 from app.schemas.name_normalizer import NameNormalizerResult
 from app.schemas.registry import RegistryCheckResult
 from app.schemas.source import SourceResult, ConfidenceLevel
+from app.schemas.official_website_review import OfficialWebsiteReview
 from app.schemas.website_candidate import WebsiteCandidate
 from app.schemas.website_ownership_signals import WebsiteOwnershipSignals
 from app.schemas.risk import BusinessRiskLevel, RiskFactor, RiskLevel, HumanReviewStatus
@@ -92,6 +93,7 @@ class CompanyCheckResult(BaseModel):
     unknowns: list[str]
     website_candidate: Optional[WebsiteCandidate] = None
     website_ownership_signals: Optional[WebsiteOwnershipSignals] = None
+    official_website_review: OfficialWebsiteReview = OfficialWebsiteReview()
     created_at: datetime
 
 

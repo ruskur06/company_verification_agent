@@ -308,6 +308,39 @@
             </section>
 
             <section class="section">
+                <h2>Official Website Human Review</h2>
+
+                <table>
+                    <tr>
+                        <th>Decision</th>
+                        <td>{{ result.official_website_review.decision.value }}</td>
+                    </tr>
+                    <tr>
+                        <th>Reviewed by</th>
+                        <td>{{ result.official_website_review.reviewed_by or "Not reviewed" }}</td>
+                    </tr>
+                    <tr>
+                        <th>Reviewed at</th>
+                        <td>{{ result.official_website_review.reviewed_at or "Not reviewed" }}</td>
+                    </tr>
+                    <tr>
+                        <th>Note</th>
+                        <td>{{ result.official_website_review.note or "None" }}</td>
+                    </tr>
+                </table>
+
+                {% if result.official_website_review.decision.value == "pending" %}
+                    <p class="muted">Candidate official website pending human verification.</p>
+                {% elif result.official_website_review.decision.value == "approved" %}
+                    <p class="muted">Official website verified by human reviewer.</p>
+                {% elif result.official_website_review.decision.value == "rejected" %}
+                    <p class="muted">Candidate website rejected by human reviewer.</p>
+                {% elif result.official_website_review.decision.value == "uncertain" %}
+                    <p class="muted">Candidate website remains uncertain after human review.</p>
+                {% endif %}
+            </section>
+
+            <section class="section">
                 <h2>Website Ownership Signals (pending verification)</h2>
 
                 {% if result.website_ownership_signals %}

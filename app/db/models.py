@@ -27,6 +27,10 @@ class CompanyCheckRecord(Base):
     registry_check_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     domain_check_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     is_locked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    official_website_review_decision: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    official_website_review_note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    official_website_review_reviewed_by: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    official_website_review_reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
 
 

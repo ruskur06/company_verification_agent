@@ -58,6 +58,16 @@ def _record_to_dict(record: CompanyCheckRecord) -> dict:
         "registry_check": json.loads(record.registry_check_json) if record.registry_check_json else None,
         "domain_check": json.loads(record.domain_check_json) if record.domain_check_json else None,
         "is_locked": bool(record.is_locked),
+        "official_website_review": {
+            "decision": record.official_website_review_decision or "pending",
+            "note": record.official_website_review_note,
+            "reviewed_by": record.official_website_review_reviewed_by,
+            "reviewed_at": (
+                record.official_website_review_reviewed_at.isoformat()
+                if record.official_website_review_reviewed_at
+                else None
+            ),
+        },
         "created_at": record.created_at.isoformat() if record.created_at else None,
     }
 
@@ -421,6 +431,37 @@ def get_sources_for_company_check(company_check_id: str) -> list[dict]:
             .all()
         )
         return [_source_record_to_dict(record) for record in records]
+    finally:
+        session.close()
+
+
+def update_official_website_review(company_check_id: str, review_data: dict) -> None:
+    """Persist official website review decision for a company check."""
+    check_id = str(company_check_id).strip()
+    if not check_id:
+        raise ValueError("company_check_id must not be empty")
+
+    session = SessionLocal()
+    try:
+        record = (
+            session.query(CompanyCheckRecord)
+            .filter(CompanyCheckRecord.check_id == check_id)
+            .first()
+        )
+        if record is None:
+            raise CompanyCheckNotFoundError(f"Company check {check_id} was not found.")
+
+        record.official_website_review_decision = str(review_data.get("decision", "pending"))
+        record.official_website_review_note = review_data.get("note")
+        record.official_website_review_reviewed_by = review_data.get("reviewed_by")
+        record.official_website_review_reviewed_at = _parse_datetime(
+            review_data.get("reviewed_at")
+        )
+
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
     finally:
         session.close()
 
