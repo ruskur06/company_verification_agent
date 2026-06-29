@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Form, HTTPException
+from fastapi.responses import RedirectResponse
+from pydantic import ValidationError
 
 from app.db.repositories import CompanyCheckLockedError
 from app.schemas.company_check import (
@@ -12,7 +14,11 @@ from app.schemas.company_check import (
     RefreshReportResponse,
 )
 from app.schemas.human_review import HumanReviewCreate, HumanReviewRecordResponse
-from app.schemas.official_website_review import OfficialWebsiteReviewCreate, OfficialWebsiteReviewResponse
+from app.schemas.official_website_review import (
+    OfficialWebsiteReviewCreate,
+    OfficialWebsiteReviewResponse,
+    OfficialWebsiteReviewSubmitDecision,
+)
 from app.schemas.risk import HumanReviewInput
 from app.schemas.source import ManualSourceCreate, SavedSourceResponse
 from app.services.company_check_service import (
@@ -145,6 +151,33 @@ def submit_official_website_review_endpoint(
         return submit_official_website_review(check_id, review)
     except ValueError as exc:
         raise _http_error_from_service(exc) from exc
+
+
+@router.post("/company-check/{check_id}/official-website-review/form")
+def submit_official_website_review_form(
+    check_id: int,
+    decision: str = Form(...),
+    note: str | None = Form(None),
+    reviewed_by: str | None = Form("human"),
+) -> RedirectResponse:
+    """Submit human website review from the result page HTML form."""
+    try:
+        review = OfficialWebsiteReviewCreate.model_validate(
+            {
+                "decision": decision,
+                "note": note,
+                "reviewed_by": reviewed_by,
+            }
+        )
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=exc.errors()) from exc
+
+    try:
+        submit_official_website_review(check_id, review)
+    except ValueError as exc:
+        raise _http_error_from_service(exc) from exc
+
+    return RedirectResponse(url=f"/result/{check_id}", status_code=303)
 
 
 @router.post("/company-check/{check_id}/human-review", response_model=CompanyCheckResult)

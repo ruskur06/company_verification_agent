@@ -338,15 +338,176 @@
                 {% elif result.official_website_review.decision.value == "uncertain" %}
                     <p class="muted">Candidate website remains uncertain after human review.</p>
                 {% endif %}
+
+                {% if result.website_candidate %}
+                    <h3>Candidate summary</h3>
+
+                    <table>
+                        <tr>
+                            <th>Candidate URL</th>
+                            <td><code>{{ result.website_candidate.candidate_url }}</code></td>
+                        </tr>
+                        <tr>
+                            <th>Candidate domain</th>
+                            <td>{{ result.website_candidate.candidate_domain }}</td>
+                        </tr>
+                        <tr>
+                            <th>Verified official website</th>
+                            <td>{{ result.website_candidate.is_verified }}</td>
+                        </tr>
+                        <tr>
+                            <th>Score</th>
+                            <td>{{ result.website_candidate.score }}</td>
+                        </tr>
+                        <tr>
+                            <th>Confidence</th>
+                            <td>{{ result.website_candidate.confidence.value }}</td>
+                        </tr>
+                        <tr>
+                            <th>Reasons</th>
+                            <td>{{ result.website_candidate.reasons | join(', ') }}</td>
+                        </tr>
+                    </table>
+
+                    {% if result.candidate_domain_dns %}
+                        <h3>Candidate domain DNS summary</h3>
+
+                        <table>
+                            <tr>
+                                <th>Status</th>
+                                <td>{{ result.candidate_domain_dns.status.value }}</td>
+                            </tr>
+                            <tr>
+                                <th>Domain</th>
+                                <td>{{ result.candidate_domain_dns.domain or "Not provided" }}</td>
+                            </tr>
+                            <tr>
+                                <th>Has A record</th>
+                                <td>{{ result.candidate_domain_dns.has_a_record }}</td>
+                            </tr>
+                            <tr>
+                                <th>Has MX record</th>
+                                <td>{{ result.candidate_domain_dns.has_mx_record }}</td>
+                            </tr>
+                            <tr>
+                                <th>Has TXT record</th>
+                                <td>{{ result.candidate_domain_dns.has_txt_record }}</td>
+                            </tr>
+                            <tr>
+                                <th>HTTPS available</th>
+                                <td>{{ result.candidate_domain_dns.https_available }}</td>
+                            </tr>
+                        </table>
+
+                        {% if result.candidate_domain_dns.warnings %}
+                            <ul>
+                                {% for warning in result.candidate_domain_dns.warnings %}
+                                    <li>{{ warning }}</li>
+                                {% endfor %}
+                            </ul>
+                        {% endif %}
+                    {% endif %}
+
+                    {% if result.website_ownership_signals %}
+                        <h3>Ownership signals summary</h3>
+
+                        <table>
+                            <tr>
+                                <th>Status</th>
+                                <td>{{ result.website_ownership_signals.status.value }}</td>
+                            </tr>
+                            <tr>
+                                <th>Score</th>
+                                <td>{{ result.website_ownership_signals.score }}</td>
+                            </tr>
+                            <tr>
+                                <th>Confidence</th>
+                                <td>{{ result.website_ownership_signals.confidence.value }}</td>
+                            </tr>
+                            <tr>
+                                <th>Officially confirmed</th>
+                                <td>{{ result.website_ownership_signals.is_officially_confirmed }}</td>
+                            </tr>
+                        </table>
+
+                        {% if result.website_ownership_signals.signals %}
+                            <ul>
+                                {% for signal in result.website_ownership_signals.signals %}
+                                    <li>
+                                        <strong>{{ signal.name }}</strong>
+                                        — found: {{ signal.found }},
+                                        weight: {{ signal.weight }},
+                                        {{ signal.detail }}
+                                    </li>
+                                {% endfor %}
+                            </ul>
+                        {% endif %}
+
+                        {% if result.official_website_review.decision.value == "approved" %}
+                            <p class="muted">
+                                Ownership signals are supporting signals only; human review decision is recorded separately.
+                                They are not legal proof of official website ownership.
+                            </p>
+                        {% else %}
+                            <p class="muted">
+                                Ownership signals are supporting signals only, not legal proof.
+                                Official website status still requires human verification.
+                            </p>
+                        {% endif %}
+                    {% endif %}
+
+                    <form
+                        method="post"
+                        action="/company-check/{{ result.check_id }}/official-website-review/form"
+                        class="review-form"
+                    >
+                        <label for="decision">Decision</label>
+                        <select name="decision" id="decision" required>
+                            <option value="approved"
+                                {% if result.official_website_review.decision.value == "approved" %}selected{% endif %}>
+                                Approved
+                            </option>
+                            <option value="rejected"
+                                {% if result.official_website_review.decision.value == "rejected" %}selected{% endif %}>
+                                Rejected
+                            </option>
+                            <option value="uncertain"
+                                {% if result.official_website_review.decision.value == "uncertain" %}selected{% endif %}>
+                                Uncertain
+                            </option>
+                        </select>
+
+                        <label for="note">Note</label>
+                        <textarea name="note" id="note">{{ result.official_website_review.note or "" }}</textarea>
+
+                        <label for="reviewed_by">Reviewed by</label>
+                        <input
+                            type="text"
+                            name="reviewed_by"
+                            id="reviewed_by"
+                            value="{{ result.official_website_review.reviewed_by or "human" }}"
+                        >
+
+                        <button type="submit">Submit review</button>
+                    </form>
+                {% else %}
+                    <p class="muted">No candidate website available for human review.</p>
+                {% endif %}
             </section>
 
             <section class="section">
                 <h2>Website Ownership Signals (pending verification)</h2>
 
                 {% if result.website_ownership_signals %}
-                    <p class="muted">
-                        Ownership signals found, but official website status still requires human verification.
-                    </p>
+                    {% if result.official_website_review.decision.value == "approved" %}
+                        <p class="muted">
+                            Ownership signals are supporting signals only; human review decision is recorded separately.
+                        </p>
+                    {% else %}
+                        <p class="muted">
+                            Ownership signals found, but official website status still requires human verification.
+                        </p>
+                    {% endif %}
 
                     <table>
                         <tr>
@@ -389,7 +550,9 @@
                     {% if result.website_ownership_signals.warnings %}
                         <ul>
                             {% for warning in result.website_ownership_signals.warnings %}
-                                <li>{{ warning }}</li>
+                                {% if result.official_website_review.decision.value != "approved" or warning != "Official website status still requires human verification." %}
+                                    <li>{{ warning }}</li>
+                                {% endif %}
                             {% endfor %}
                         </ul>
                     {% else %}
