@@ -466,6 +466,32 @@ def update_official_website_review(company_check_id: str, review_data: dict) -> 
         session.close()
 
 
+def update_final_risk_review(company_check_id: str, review_data: dict) -> None:
+    """Persist final risk human review status for a company check."""
+    check_id = str(company_check_id).strip()
+    if not check_id:
+        raise ValueError("company_check_id must not be empty")
+
+    session = SessionLocal()
+    try:
+        record = (
+            session.query(CompanyCheckRecord)
+            .filter(CompanyCheckRecord.check_id == check_id)
+            .first()
+        )
+        if record is None:
+            raise CompanyCheckNotFoundError(f"Company check {check_id} was not found.")
+
+        record.human_review_status = str(review_data.get("human_review_status", "pending"))
+
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+
 def update_company_check_after_refresh(result: dict) -> None:
     """Update company check metadata and append a refreshed report record."""
     check_id = str(result.get("check_id", "")).strip()

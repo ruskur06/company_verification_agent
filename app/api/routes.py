@@ -13,6 +13,7 @@ from app.schemas.company_check import (
     CompanyCheckResult,
     RefreshReportResponse,
 )
+from app.schemas.final_risk_review import FinalRiskReviewCreate, FinalRiskReviewResponse
 from app.schemas.human_review import HumanReviewCreate, HumanReviewRecordResponse
 from app.schemas.official_website_review import (
     OfficialWebsiteReviewCreate,
@@ -29,6 +30,7 @@ from app.services.company_check_service import (
     load_company_check,
     refresh_company_check_report,
     run_company_check,
+    submit_final_risk_review,
     submit_human_review,
     submit_official_website_review,
 )
@@ -178,6 +180,21 @@ def submit_official_website_review_form(
         raise _http_error_from_service(exc) from exc
 
     return RedirectResponse(url=f"/result/{check_id}", status_code=303)
+
+
+@router.post(
+    "/company-check/{check_id}/final-risk-review",
+    response_model=FinalRiskReviewResponse,
+)
+def submit_final_risk_review_endpoint(
+    check_id: int,
+    review: FinalRiskReviewCreate,
+) -> FinalRiskReviewResponse:
+    """Submit final human review for overall company risk."""
+    try:
+        return submit_final_risk_review(check_id, review)
+    except ValueError as exc:
+        raise _http_error_from_service(exc) from exc
 
 
 @router.post("/company-check/{check_id}/human-review", response_model=CompanyCheckResult)

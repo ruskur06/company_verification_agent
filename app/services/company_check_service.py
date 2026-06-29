@@ -23,6 +23,7 @@ from app.db.repositories import (
     list_company_checks as list_saved_company_checks,
     save_company_check,
     update_company_check_after_refresh,
+    update_final_risk_review,
     update_official_website_review,
 )
 from app.schemas.company_check import (
@@ -33,7 +34,8 @@ from app.schemas.company_check import (
     RiskInfo,
     SummaryInfo,
 )
-from app.schemas.human_review import HumanReviewCreate, HumanReviewRecordResponse
+from app.schemas.final_risk_review import FinalRiskReviewCreate, FinalRiskReviewResponse
+from app.schemas.human_review import HumanReviewCreate, HumanReviewRecordResponse, ReviewDecision
 from app.schemas.official_website_review import (
     OfficialWebsiteReview,
     OfficialWebsiteReviewCreate,
@@ -218,6 +220,70 @@ def submit_official_website_review(
     )
 
 
+def submit_final_risk_review(
+    check_id: int | str,
+    review: FinalRiskReviewCreate,
+) -> FinalRiskReviewResponse:
+    """Apply final human risk review and persist the decision."""
+    check_id_str = str(check_id).strip()
+    try:
+        check_id_int = int(check_id_str)
+    except ValueError as exc:
+        raise ValueError(f"Invalid company check id: {check_id_str}") from exc
+
+    result = load_company_check(check_id_int)
+    if result is None:
+        raise ValueError(f"Company check {check_id_str} was not found.")
+
+    reviewed_at = datetime.now(timezone.utc)
+
+    if review.decision == ReviewDecision.approved:
+        final_score = result.risk.preliminary_score
+        final_level = result.risk.preliminary_level
+        human_review_status = HumanReviewStatus.approved
+    elif review.decision == ReviewDecision.edited:
+        final_score = review.final_score
+        final_level = review.final_level
+        human_review_status = HumanReviewStatus.edited
+    else:
+        final_score = None
+        final_level = None
+        human_review_status = HumanReviewStatus.rejected
+
+    result.risk = result.risk.model_copy(
+        update={
+            "final_score": final_score,
+            "final_level": final_level,
+            "human_review_status": human_review_status,
+            "notes": review.notes,
+            "reviewed_by": review.reviewed_by,
+            "reviewed_at": reviewed_at,
+        }
+    )
+
+    _report_agent.save(result)
+
+    try:
+        update_final_risk_review(
+            check_id_str,
+            {
+                "human_review_status": human_review_status.value,
+            },
+        )
+    except CompanyCheckNotFoundError as exc:
+        raise ValueError(str(exc)) from exc
+
+    return FinalRiskReviewResponse(
+        check_id=check_id_int,
+        human_review_status=human_review_status,
+        final_score=final_score,
+        final_level=final_level,
+        notes=review.notes,
+        reviewed_by=review.reviewed_by,
+        reviewed_at=reviewed_at,
+    )
+
+
 def _db_source_to_source_result(source_data: dict) -> SourceResult:
     return SourceResult(
         title=source_data["title"],
@@ -374,6 +440,9 @@ def refresh_company_check_report(company_check_id: int | str) -> RefreshReportRe
         final_score=result.risk.final_score,
         final_level=result.risk.final_level,
         human_review_status=result.risk.human_review_status,
+        notes=result.risk.notes,
+        reviewed_by=result.risk.reviewed_by,
+        reviewed_at=result.risk.reviewed_at,
     )
 
     _, markdown_report_path = _report_agent.save(result)

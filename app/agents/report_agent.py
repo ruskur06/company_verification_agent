@@ -6,6 +6,7 @@ from pathlib import Path
 
 from app.schemas.company_check import CompanyCheckResult, DomainDnsInfo
 from app.schemas.official_website_review import OfficialWebsiteReviewDecision
+from app.tools.final_risk_review import final_risk_review_status_message
 from app.tools.official_website_review import official_website_review_status_message
 from app.schemas.source import SourceResult
 
@@ -236,6 +237,31 @@ def _format_verification_risk_overview_markdown(result: CompanyCheckResult) -> s
     )
 
 
+def _format_human_review_markdown(result: CompanyCheckResult) -> str:
+    lines = [
+        f"**{final_risk_review_status_message(result.risk.human_review_status)}**",
+        "",
+        f"- Preliminary verification score (legacy): {result.risk.preliminary_score}",
+        f"- Preliminary verification level (legacy): {result.risk.preliminary_level.value}",
+        f"- Human review status: `{result.risk.human_review_status.value}`",
+        f"- Requires human review: `{result.risk.requires_human_review}`",
+    ]
+
+    if result.risk.final_score is not None:
+        lines.append(f"- Final score: `{result.risk.final_score}`")
+    if result.risk.final_level is not None:
+        lines.append(f"- Final level: `{result.risk.final_level.value}`")
+
+    if result.risk.reviewed_by:
+        lines.append(f"- Reviewed by: {result.risk.reviewed_by}")
+    if result.risk.reviewed_at:
+        lines.append(f"- Reviewed at: {result.risk.reviewed_at}")
+    if result.risk.notes:
+        lines.append(f"- Notes: {result.risk.notes}")
+
+    return "\n".join(lines)
+
+
 class ReportAgent:
     """Builds Markdown reports and persists strict JSON output."""
 
@@ -308,13 +334,7 @@ Sources found: {len(result.sources)}
 
 ## 10. Human Review
 
-Status: {result.risk.human_review_status.value}
-
-Requires human review: {result.risk.requires_human_review}
-
-Final score: {result.risk.final_score if result.risk.final_score is not None else "Pending"}
-
-Final level: {result.risk.final_level.value if result.risk.final_level else "Pending"}
+{_format_human_review_markdown(result)}
 
 ## 11. Disclaimer
 

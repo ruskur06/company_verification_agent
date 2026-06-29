@@ -75,6 +75,9 @@ class RiskInfo(BaseModel):
     final_score: Optional[int] = None
     final_level: Optional[RiskLevel] = None
     human_review_status: HumanReviewStatus = HumanReviewStatus.pending
+    notes: Optional[str] = None
+    reviewed_by: Optional[str] = None
+    reviewed_at: Optional[datetime] = None
 
 
 class CompanyCheckResult(BaseModel):
