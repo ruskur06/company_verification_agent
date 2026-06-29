@@ -197,6 +197,46 @@ def submit_final_risk_review_endpoint(
         raise _http_error_from_service(exc) from exc
 
 
+@router.post("/company-check/{check_id}/final-risk-review/form")
+def submit_final_risk_review_form(
+    check_id: int,
+    final_risk_decision: str = Form(...),
+    final_score: str | None = Form(None),
+    final_level: str | None = Form(None),
+    notes: str | None = Form(None),
+    reviewed_by: str | None = Form("human"),
+) -> RedirectResponse:
+    """Submit final risk human review from the result page HTML form."""
+    score_value = None if final_score in (None, "") else final_score
+    level_value = None if final_level in (None, "") else final_level
+
+    try:
+        review = FinalRiskReviewCreate.model_validate(
+            {
+                "decision": final_risk_decision,
+                "final_score": score_value,
+                "final_level": level_value,
+                "notes": notes,
+                "reviewed_by": reviewed_by,
+            }
+        )
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=[
+                {"type": error["type"], "loc": error["loc"], "msg": error["msg"]}
+                for error in exc.errors()
+            ],
+        ) from exc
+
+    try:
+        submit_final_risk_review(check_id, review)
+    except ValueError as exc:
+        raise _http_error_from_service(exc) from exc
+
+    return RedirectResponse(url=f"/result/{check_id}", status_code=303)
+
+
 @router.post("/company-check/{check_id}/human-review", response_model=CompanyCheckResult)
 def review_company_check(check_id: int, review: HumanReviewInput) -> CompanyCheckResult:
     """Legacy file-based human review endpoint.
