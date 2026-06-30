@@ -13,7 +13,11 @@ from fastapi.templating import Jinja2Templates
 
 from app.api.routes import router
 from app.db.database import init_db
-from app.services.company_check_service import load_company_check, run_company_check
+from app.services.company_check_service import (
+    list_checks_from_db,
+    load_company_check,
+    run_company_check,
+)
 
 BASE_DIR = Path(__file__).resolve().parent
 WEB_DIR = BASE_DIR / "web"
@@ -80,6 +84,18 @@ async def run_check_from_form(request: Request) -> RedirectResponse:
     return RedirectResponse(
         url=f"/result/{response.check_id}",
         status_code=303,
+    )
+
+
+@app.get("/checks", response_class=HTMLResponse)
+def checks_history(request: Request) -> HTMLResponse:
+    """Show read-only history of saved company checks from the database."""
+    checks = list_checks_from_db(limit=50)
+
+    return templates.TemplateResponse(
+        request=request,
+        name="checks.html",
+        context={"checks": checks},
     )
 
 

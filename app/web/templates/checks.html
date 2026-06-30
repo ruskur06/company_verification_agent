@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Company Checks History</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <main class="container">
+        <section class="card">
+            <div class="top-row">
+                <h1>Company Checks History</h1>
+                <a href="/" class="secondary-link">New check</a>
+            </div>
+
+            <p class="muted">
+                Read-only list of company checks saved in the database.
+            </p>
+
+            {% if checks %}
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Check ID</th>
+                            <th>Company</th>
+                            <th>Country</th>
+                            <th>Preliminary score</th>
+                            <th>Preliminary level</th>
+                            <th>Human review</th>
+                            <th>Created at</th>
+                            <th>Result</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for check in checks %}
+                            <tr>
+                                <td>{{ check.check_id }}</td>
+                                <td>{{ check.company_name or "—" }}</td>
+                                <td>{{ check.country or "—" }}</td>
+                                <td>{{ check.risk_score if check.risk_score is not none else "—" }}</td>
+                                <td>{{ check.risk_level or "—" }}</td>
+                                <td>{{ check.human_review_status or "pending" }}</td>
+                                <td>{{ check.created_at or "—" }}</td>
+                                <td><a href="/result/{{ check.check_id }}">View result</a></td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            {% else %}
+                <p class="muted">No company checks found.</p>
+            {% endif %}
+        </section>
+    </main>
+</body>
+</html>

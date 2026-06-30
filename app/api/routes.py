@@ -67,7 +67,7 @@ def create_company_check(request: CompanyCheckRequest) -> CompanyCheckResponse:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
-@router.get("/checks")
+@router.get("/api/checks")
 def get_saved_checks() -> list[dict]:
     """List recent company checks stored in PostgreSQL."""
     return list_checks_from_db(limit=20)
