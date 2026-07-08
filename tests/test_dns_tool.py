@@ -1,7 +1,7 @@
 import httpx
 
 from app.schemas.company_check import DomainDnsStatus
-from app.tools.domain_dns_check import domain_dns_check
+from app.tools.domain_dns_check import domain_dns_check, normalize_domain_input
 
 
 class FakeHttpResponse:
@@ -85,3 +85,51 @@ def test_dns_exception_is_handled(monkeypatch):
 
     assert result.status == DomainDnsStatus.checked
     assert result.warnings
+
+
+def test_normalize_domain_input_strips_scheme_www_path():
+    assert normalize_domain_input("https://munchy.at/de") == "munchy.at"
+    assert normalize_domain_input("http://munchy.at/de") == "munchy.at"
+    assert normalize_domain_input("www.munchy.at/de") == "munchy.at"
+    assert normalize_domain_input("munchy.at/de") == "munchy.at"
+    assert normalize_domain_input("munchy.at") == "munchy.at"
+
+
+def test_dns_lookup_uses_normalized_domain_for_url_inputs(monkeypatch):
+    import dns.resolver
+
+    normalized_domain = "munchy.at"
+    original_input = "https://munchy.at/de"
+
+    def fake_resolve(domain, record_type, lifetime=5):
+        # The DNS lookups must be executed against the normalized domain,
+        # not against munchy.at/de.
+        assert domain == normalized_domain
+
+        if record_type == "A":
+            return [object()]
+        if record_type == "MX":
+            return [FakeMxRecord()]
+        if record_type == "TXT":
+            return ['"v=spf1 include:example.com ~all"']
+        if record_type == "NS":
+            return ["ns1.example.com."]
+        if record_type == "AAAA":
+            return []
+        return []
+
+    def fake_head(url, *args, **kwargs):
+        assert url == f"https://{normalized_domain}"
+        return FakeHttpResponse()
+
+    monkeypatch.setattr(dns.resolver, "resolve", fake_resolve)
+    monkeypatch.setattr("app.tools.domain_dns_check.httpx.head", fake_head)
+
+    result = domain_dns_check(original_input)
+
+    assert result.status == DomainDnsStatus.checked
+    assert result.domain == normalized_domain
+    assert result.has_a_record is True
+    assert result.has_mx_record is True
+    assert result.has_txt_record is True
+    assert result.https_available is True

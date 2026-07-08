@@ -216,8 +216,13 @@
 
                 {% if result.website_candidate %}
                     <p class="muted">
-                        This is a candidate website from relevant web search results,
-                        not a confirmed official website.
+                        {% if result.website_candidate.source_title == "User-provided domain" or "provided_domain" in (result.website_candidate.reasons or []) %}
+                            This is a candidate website from the user-provided domain,
+                            not a confirmed official website.
+                        {% else %}
+                            This is a candidate website from relevant web search results,
+                            not a confirmed official website.
+                        {% endif %}
                     </p>
 
                     <table>

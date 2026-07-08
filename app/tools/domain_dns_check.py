@@ -17,6 +17,33 @@ from app.schemas.company_check import DomainDnsInfo, DomainDnsStatus
 
 logger = get_logger(__name__)
 
+# Public helper for normalizing user-provided domain/URL to a bare domain.
+def normalize_domain_input(domain_or_url: Optional[str]) -> Optional[str]:
+    """
+    Normalize user-provided domain or URL to a bare lowercase domain.
+
+    Examples:
+    - https://munchy.at/de -> munchy.at
+    - www.munchy.at/de -> munchy.at
+    - munchy.at/de -> munchy.at
+    """
+    if not domain_or_url:
+        return None
+
+    value = domain_or_url.strip().lower()
+    # Strip scheme if accidentally included.
+    value = re.sub(r"^https?://", "", value)
+
+    # Remove path/query/fragment.
+    value = re.split(r"[/?#]", value, maxsplit=1)[0].strip()
+
+    # Strip leading www. (only this simple policy is supported for MVP).
+    if value.startswith("www."):
+        value = value[4:]
+
+    value = value.strip().rstrip(".")
+    return value or None
+
 # Simple domain format regex (not exhaustive — just catches obvious invalids)
 _DOMAIN_RE = re.compile(
     r"^(?:[a-zA-Z0-9](?:[a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$"
@@ -33,9 +60,9 @@ def domain_dns_check(domain: Optional[str]) -> DomainDnsInfo:
     if not domain:
         return DomainDnsInfo(status=DomainDnsStatus.not_provided)
 
-    domain = domain.strip().lower()
-    # Strip scheme if accidentally included
-    domain = re.sub(r"^https?://", "", domain).rstrip("/")
+    domain = normalize_domain_input(domain)
+    if not domain:
+        return DomainDnsInfo(status=DomainDnsStatus.failed, domain=None)
 
     warnings: list[str] = []
 

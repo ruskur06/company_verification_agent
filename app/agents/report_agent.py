@@ -197,6 +197,23 @@ def _format_website_ownership_signals_markdown(result: CompanyCheckResult) -> st
     return "\n".join(lines)
 
 
+def _website_candidate_source_description(result: CompanyCheckResult) -> str:
+    candidate = result.website_candidate
+    if candidate is None:
+        return ""
+
+    if candidate.source_title == "User-provided domain" or "provided_domain" in (candidate.reasons or []):
+        return (
+            "This is a candidate website from the user-provided domain, "
+            "not a confirmed official website."
+        )
+
+    return (
+        "This is a candidate website from relevant web search results, "
+        "not a confirmed official website."
+    )
+
+
 def _format_website_candidate_markdown(result: CompanyCheckResult) -> str:
     candidate = result.website_candidate
     if candidate is None:
@@ -215,7 +232,7 @@ def _format_website_candidate_markdown(result: CompanyCheckResult) -> str:
             "",
             f"**{official_website_review_status_message(result.official_website_review)}**",
             "",
-            "This is a candidate website from relevant web search results, not a confirmed official website.",
+            _website_candidate_source_description(result),
         ]
     )
 

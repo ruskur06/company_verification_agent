@@ -148,6 +148,39 @@ def test_report_includes_website_candidate_section_when_present():
     assert "Website Candidate (pending verification)" in markdown
     assert "servochron.com" in markdown
     assert "candidate pending human verification" in markdown
+    assert (
+        "This is a candidate website from relevant web search results, "
+        "not a confirmed official website."
+    ) in markdown
+
+
+def test_report_website_candidate_from_provided_domain_uses_provided_domain_text():
+    data = valid_company_check_data()
+    data["website_candidate"] = {
+        "candidate_url": "https://munchy.at",
+        "candidate_domain": "munchy.at",
+        "score": 0.5,
+        "confidence": "medium",
+        "reasons": ["provided_domain"],
+        "source_title": "User-provided domain",
+        "is_verified": False,
+    }
+
+    markdown = ReportAgent().build_markdown(CompanyCheckResult.model_validate(data))
+
+    assert (
+        "This is a candidate website from the user-provided domain, "
+        "not a confirmed official website."
+    ) in markdown
+    assert "relevant web search results" not in markdown
+
+
+def test_result_template_website_candidate_text_varies_by_source():
+    template = Path("app/web/templates/result.html").read_text(encoding="utf-8")
+
+    assert "user-provided domain" in template
+    assert "relevant web search results" in template
+    assert "provided_domain" in template
 
 
 def test_cli_source_does_not_use_misleading_preliminary_risk_score_label():

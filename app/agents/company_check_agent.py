@@ -19,6 +19,7 @@ from app.schemas.company_check import (
     CompanyCheckResult,
     CompanyInfo,
     DomainDnsInfo,
+    DomainDnsStatus,
     RiskInfo,
     SummaryInfo,
 )
@@ -26,6 +27,7 @@ from app.schemas.name_normalizer import NameNormalizerInput
 from app.schemas.risk import RiskLevel, RiskScoreInput
 from app.schemas.registry import RegistryCheckResult
 from app.schemas.source import ConfidenceLevel, SourceResult
+from app.schemas.website_candidate import WebsiteCandidate
 from app.tools.entity_matcher import (
     annotate_relevance,
     source_coverage_flags,
@@ -166,6 +168,29 @@ class CompanyCheckAgent:
         negative_snippets_count = count_negative_snippets(verified_sources)
         suspicious_keywords = extract_suspicious_keywords(verified_sources)
         website_candidate = find_website_candidate(request.company_name, sources)
+
+        # If the user provided a valid/reachable domain/URL, we create a
+        # pending (not verified) website candidate from it.
+        #
+        # We only create this candidate when the sources-based matcher did not
+        # find a candidate already, to keep source relevance logic intact.
+        user_domain_dns_resolves = (
+            dns_info.status == DomainDnsStatus.checked
+            and bool(dns_info.domain)
+            and dns_info.has_a_record
+            and dns_info.https_available
+        )
+        if website_candidate is None and user_domain_dns_resolves:
+            website_candidate = WebsiteCandidate(
+                candidate_url=f"https://{dns_info.domain}",
+                candidate_domain=dns_info.domain,
+                score=0.5,
+                confidence=ConfidenceLevel.medium,
+                reasons=["provided_domain"],
+                source_title="User-provided domain",
+                is_verified=False,
+            )
+
         candidate_domain_dns: DomainDnsInfo | None = None
         if website_candidate is not None:
             candidate_domain_dns = self.domain_agent.run(website_candidate.candidate_domain)
@@ -227,7 +252,7 @@ class CompanyCheckAgent:
             company=CompanyInfo(
                 name=request.company_name,
                 country=request.country,
-                domain=request.domain,
+                domain=dns_info.domain or request.domain,
             ),
             name_normalization=name_normalization,
             summary=SummaryInfo(

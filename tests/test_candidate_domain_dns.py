@@ -106,6 +106,73 @@ def test_user_provided_domain_dns_is_not_overwritten_by_candidate_domain_dns():
     assert response.json_result.candidate_domain_dns.domain == "servochron.com"
 
 
+def test_user_provided_domain_creates_pending_website_candidate_and_populates_candidate_dns():
+    domain_agent = MagicMock()
+    domain_agent.run.side_effect = [
+        # Domain DNS for the raw user input.
+        _checked_dns("munchy.at", https=True, has_a=True, has_mx=True),
+        # Candidate domain DNS for the normalized candidate domain.
+        _checked_dns("munchy.at", https=True, has_a=True, has_mx=True),
+    ]
+
+    agent = _build_test_agent(domain_agent=domain_agent, sources=[])
+
+    response = agent.run(
+        company_name="Munchy Gastro GmbH",
+        country="Austria",
+        domain="https://munchy.at/de",
+    )
+
+    assert response.json_result is not None
+    assert response.json_result.website_candidate is not None
+
+    candidate = response.json_result.website_candidate
+    assert candidate.candidate_domain == "munchy.at"
+    assert candidate.candidate_url == "https://munchy.at"
+    assert candidate.is_verified is False
+    assert "provided_domain" in candidate.reasons
+
+    # Company domain is stored as the normalized bare domain.
+    assert response.json_result.company.domain == "munchy.at"
+
+    assert response.json_result.domain_dns.domain == "munchy.at"
+    assert response.json_result.candidate_domain_dns is not None
+    assert response.json_result.candidate_domain_dns.domain == "munchy.at"
+    assert (
+        response.json_result.domain_dns is not response.json_result.candidate_domain_dns
+    ), "domain_dns and candidate_domain_dns must stay structurally separate"
+
+    assert response.json_result.official_website_review.decision.value == "pending"
+    assert response.json_result.risk.requires_human_review is True
+
+    assert domain_agent.run.call_args_list[0].args == ("https://munchy.at/de",)
+    assert domain_agent.run.call_args_list[1].args == ("munchy.at",)
+
+
+def test_unreachable_user_provided_domain_does_not_create_website_candidate():
+    domain_agent = MagicMock()
+    domain_agent.run.return_value = DomainDnsInfo(
+        status=DomainDnsStatus.checked,
+        domain="munchy.at",
+        has_a_record=False,
+        has_mx_record=False,
+        https_available=False,
+    )
+
+    agent = _build_test_agent(domain_agent=domain_agent, sources=[])
+
+    response = agent.run(
+        company_name="Munchy Gastro GmbH",
+        country="Austria",
+        domain="https://munchy.at/de",
+    )
+
+    assert response.json_result is not None
+    assert response.json_result.website_candidate is None
+    assert response.json_result.candidate_domain_dns is None
+    assert domain_agent.run.call_count == 1
+
+
 def test_successful_candidate_dns_adds_pending_ownership_factor():
     result = calculate_risk_score(
         RiskScoreInput(

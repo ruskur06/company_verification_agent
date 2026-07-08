@@ -3,12 +3,19 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import sessionmaker
+from unittest.mock import MagicMock
 
-from app.agents.report_agent import json_path_for_check
+from app.agents.company_check_agent import CompanyCheckAgent
+from app.agents.human_review_agent import HumanReviewAgent
+from app.agents.name_normalizer_agent import NameNormalizer
+from app.agents.risk_agent import RiskAgent
+from app.agents.report_agent import ReportAgent, json_path_for_check
 from app.db import database
 from app.db.repositories import save_company_check
 from app.main import app
-from app.schemas.company_check import CompanyCheckResult
+from app.schemas.company_check import CompanyCheckResult, DomainDnsInfo, DomainDnsStatus
+from app.schemas.registry import RegistryCheckResult, RegistryCheckStatus
+from app.schemas.source import ConfidenceLevel
 from tests.test_database import sample_check_result
 from tests.test_json_schema import valid_company_check_data
 
@@ -144,6 +151,76 @@ def test_result_page_shows_review_form_when_candidate_exists(sqlite_db, client):
     assert 'value="uncertain"' in text
     assert "servochron.com" in text
     assert "https://servochron.com" in text
+
+
+def test_result_page_shows_review_form_when_candidate_created_from_provided_domain(
+    sqlite_db, client
+):
+    web_search_agent = MagicMock()
+    web_search_agent.run.return_value = []
+
+    domain_agent = MagicMock()
+    domain_agent.run.side_effect = [
+        DomainDnsInfo(
+            status=DomainDnsStatus.checked,
+            domain="munchy.at",
+            has_a_record=True,
+            has_mx_record=True,
+            has_txt_record=True,
+            https_available=True,
+        ),
+        DomainDnsInfo(
+            status=DomainDnsStatus.checked,
+            domain="munchy.at",
+            has_a_record=True,
+            has_mx_record=True,
+            has_txt_record=True,
+            https_available=True,
+        ),
+    ]
+
+    registry_agent = MagicMock()
+    registry_agent.run.return_value = RegistryCheckResult(
+        company_name="Munchy Gastro GmbH",
+        country="Austria",
+        status=RegistryCheckStatus.not_found,
+        registry_found=False,
+        confidence=ConfidenceLevel.low,
+        is_mock=True,
+    )
+
+    agent = CompanyCheckAgent(
+        name_normalizer=NameNormalizer(),
+        web_search_agent=web_search_agent,
+        domain_agent=domain_agent,
+        registry_agent=registry_agent,
+        risk_agent=RiskAgent(),
+        report_agent=ReportAgent(),
+        human_review_agent=HumanReviewAgent(),
+    )
+
+    response = agent.run(
+        company_name="Munchy Gastro GmbH",
+        country="Austria",
+        domain="https://munchy.at/de",
+    )
+
+    assert response.json_result is not None
+    assert response.json_result.website_candidate is not None
+    assert response.json_result.website_candidate.is_verified is False
+
+    page = client.get(f"/result/{response.check_id}")
+    assert page.status_code == 200
+
+    text = page.text
+    assert "official-website-review/form" in text
+    assert "Candidate official website pending human verification" in text
+    assert "Final risk assessment requires human review." in text
+    assert "This is a candidate website from the user-provided domain" in text
+    assert "not a confirmed official website." in text
+    assert "relevant web search results" not in text
+    assert "munchy.at" in text
+    assert "https://munchy.at" in text
 
 
 def test_approved_form_submit_persists_decision(sqlite_db, client):
