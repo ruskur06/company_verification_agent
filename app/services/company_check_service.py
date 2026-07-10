@@ -5,6 +5,7 @@ Thin facade over the agent layer. Handles persistence helpers used by CLI/API.
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
@@ -54,6 +55,7 @@ from app.schemas.source import (
 from app.schemas.website_candidate import WebsiteCandidate
 from app.schemas.website_ownership_signals import WebsiteOwnershipSignals
 from app.tools.entity_matcher import source_coverage_flags, verified_coverage_sources
+from app.tools.final_risk_review import final_risk_review_status_message
 from app.tools.risk_input_helpers import build_domain_risk_fields, build_ownership_risk_fields
 from app.tools.official_website_review import apply_official_website_review_to_candidate
 from app.tools.web_search import count_negative_snippets, extract_suspicious_keywords
@@ -67,6 +69,67 @@ _report_agent = ReportAgent()
 _domain_agent = DomainAgent()
 _check_agent = CompanyCheckAgent(report_agent=_report_agent)
 _risk_agent = RiskAgent()
+
+_STALE_FINAL_RISK_UNKNOWN = "Final risk score requires human review."
+_REFRESH_PENDING_FINAL_RISK_SENTENCE = "Final assessment still requires human review."
+_FINAL_RISK_STATUS_SENTENCES = tuple(
+    dict.fromkeys(
+        (
+            *(
+                final_risk_review_status_message(status)
+                for status in HumanReviewStatus
+            ),
+            _REFRESH_PENDING_FINAL_RISK_SENTENCE,
+        )
+    )
+)
+
+
+def _normalize_summary_text(text: str) -> str:
+    normalized = re.sub(r"\s+", " ", text).strip()
+    normalized = re.sub(r"\s+\.", ".", normalized)
+    normalized = re.sub(r"\.{2,}", ".", normalized)
+    return normalized
+
+
+def _replace_final_risk_status_sentences(assessment: str, status_message: str) -> str:
+    updated = assessment
+    found_any = False
+    for sentence in _FINAL_RISK_STATUS_SENTENCES:
+        if sentence in updated:
+            found_any = True
+            updated = updated.replace(sentence, "")
+    updated = _normalize_summary_text(updated)
+
+    if found_any:
+        if updated and not updated.endswith((".", "!", "?")):
+            updated = f"{updated}."
+        return f"{updated} {status_message}".strip() if updated else status_message
+
+    if updated and not updated.endswith((".", "!", "?")):
+        updated = f"{updated}."
+    return f"{updated} {status_message}".strip()
+
+
+def _apply_final_risk_wording_sync(result: CompanyCheckResult) -> CompanyCheckResult:
+    """Keep summary/unknowns aligned with the current final-risk review status."""
+    status = result.risk.human_review_status
+    if status == HumanReviewStatus.pending:
+        return result
+
+    status_message = final_risk_review_status_message(status)
+    unknowns = [item for item in result.unknowns if item != _STALE_FINAL_RISK_UNKNOWN]
+    assessment = _replace_final_risk_status_sentences(
+        result.summary.overall_assessment,
+        status_message,
+    )
+
+    return result.model_copy(
+        update={
+            "unknowns": unknowns,
+            "summary": result.summary.model_copy(update={"overall_assessment": assessment}),
+        }
+    )
 
 
 def _persist_company_check(response: CompanyCheckResponse) -> None:
@@ -283,6 +346,7 @@ def submit_final_risk_review(
             "reviewed_at": reviewed_at,
         }
     )
+    result = _apply_final_risk_wording_sync(result)
 
     _report_agent.save(result)
 
@@ -514,6 +578,7 @@ def refresh_company_check_report(company_check_id: int | str) -> RefreshReportRe
     )
     result.unknowns = _build_refreshed_unknowns(result, bool(verified_sources))
     result.risk = _build_risk_info_from_result(result, risk_result)
+    result = _apply_final_risk_wording_sync(result)
 
     _, markdown_report_path = _report_agent.save(result)
     json_report_path = str(json_path_for_check(check_id))

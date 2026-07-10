@@ -422,3 +422,46 @@ def test_refresh_report_preserves_final_risk_review_state(sqlite_db):
     assert response.json_result.risk.notes == "Approved after manual review."
     assert response.json_result.risk.reviewed_by == "human"
     assert response.json_result.risk.reviewed_at is not None
+
+
+def test_refresh_report_preserves_approved_final_risk_summary_wording(sqlite_db):
+    data = valid_company_check_data()
+    data["check_id"] = int(CHECK_ID)
+    data["company"]["name"] = "Servochron"
+    data["risk"]["human_review_status"] = "approved"
+    data["risk"]["final_score"] = 42
+    data["risk"]["final_level"] = "medium"
+    data["risk"]["notes"] = "Approved after manual review."
+    data["risk"]["reviewed_by"] = "human"
+    data["risk"]["reviewed_at"] = "2026-01-02T00:00:00+00:00"
+    data["summary"]["overall_assessment"] = (
+        "This report was refreshed using stored company check data and linked sources from the database. "
+        "Manually verified non-mock sources improve verification confidence but do not prove business safety. "
+        "Business risk remains unknown unless verified negative business indicators exist. "
+        "Final risk approved by human reviewer."
+    )
+    data["unknowns"] = ["No official registry result was confirmed."]
+    data["sources"] = [
+        {
+            "title": "Mock search result",
+            "url": "mock://search/servochron/profile",
+            "snippet": "Mock source for local MVP testing.",
+            "source_type": "search_result",
+            "confidence": "low",
+            "is_mock": True,
+            "retrieved_at": "2026-01-01T00:00:00+00:00",
+        }
+    ]
+
+    path = json_path_for_check(int(CHECK_ID))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data), encoding="utf-8")
+    save_company_check(sample_check_result(CHECK_ID))
+    add_source_to_company_check(CHECK_ID, _manual_source_payload())
+
+    response = refresh_company_check_report(CHECK_ID)
+
+    assessment = response.json_result.summary.overall_assessment
+    assert "Final risk approved by human reviewer." in assessment
+    assert "Final assessment still requires human review." not in assessment
+    assert "Final risk assessment requires human review." not in assessment

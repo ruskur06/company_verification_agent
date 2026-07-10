@@ -26,6 +26,12 @@ from tests.test_json_schema import valid_company_check_data
 
 CHECK_ID = "1782245998767"
 
+_STALE_FINAL_RISK_UNKNOWN = "Final risk score requires human review."
+_PENDING_SUMMARY_MARKERS = (
+    "Final risk assessment requires human review.",
+    "Final assessment still requires human review.",
+)
+
 
 @pytest.fixture()
 def sqlite_db(tmp_path, monkeypatch):
@@ -66,6 +72,17 @@ def _write_check_json() -> None:
     data = valid_company_check_data()
     data["check_id"] = int(CHECK_ID)
     data["website_candidate"] = _website_candidate_payload()
+    data["summary"]["overall_assessment"] = (
+        "This is a preliminary local check based on DNS data and mock web search output. "
+        "Mock sources are useful for testing the pipeline but must not be treated as verified evidence. "
+        "A higher preliminary score may reflect missing verified data and verification risk, not proof of misconduct. "
+        "Final risk assessment requires human review."
+    )
+    data["unknowns"] = [
+        "No official registry result was confirmed.",
+        "Current web search results are mock results and not verified evidence.",
+        _STALE_FINAL_RISK_UNKNOWN,
+    ]
 
     path = json_path_for_check(int(CHECK_ID))
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -112,9 +129,75 @@ def test_pending_report_wording(sqlite_db):
     result = _load_saved_result()
     markdown = ReportAgent().build_markdown(result)
 
+    assert _STALE_FINAL_RISK_UNKNOWN in result.unknowns
+    assert "Final risk assessment requires human review." in result.summary.overall_assessment
     assert "Final risk assessment requires human review." in markdown
     assert "Preliminary verification score (legacy): 45" in markdown
     assert "Final score:" not in markdown
+
+
+@pytest.mark.parametrize(
+    ("decision", "expected_message"),
+    [
+        ("approved", "Final risk approved by human reviewer."),
+        ("edited", "Final risk edited by human reviewer."),
+        ("rejected", "Risk assessment rejected by human reviewer."),
+    ],
+)
+def test_final_risk_review_syncs_summary_unknowns_and_reports(
+    sqlite_db,
+    decision,
+    expected_message,
+):
+    _persist_check()
+    payload = _review_payload(decision=decision)
+    if decision == "edited":
+        payload["final_score"] = 35
+        payload["final_level"] = "medium"
+
+    submit_final_risk_review(CHECK_ID, FinalRiskReviewCreate.model_validate(payload))
+
+    saved = _load_saved_result()
+    markdown = ReportAgent().build_markdown(saved)
+    report_path = Path("outputs/reports") / f"company_check_{CHECK_ID}.md"
+    saved_markdown = report_path.read_text(encoding="utf-8")
+
+    assert _STALE_FINAL_RISK_UNKNOWN not in saved.unknowns
+    assert "No official registry result was confirmed." in saved.unknowns
+    assert expected_message in saved.summary.overall_assessment
+    for marker in _PENDING_SUMMARY_MARKERS:
+        assert marker not in saved.summary.overall_assessment
+    assert expected_message in markdown
+    assert expected_message in saved_markdown
+
+
+def test_final_risk_review_transition_approved_to_rejected_replaces_summary_status(
+    sqlite_db,
+):
+    _persist_check()
+
+    submit_final_risk_review(
+        CHECK_ID,
+        FinalRiskReviewCreate(
+            decision=ReviewDecision.approved,
+            reviewed_by="human",
+        ),
+    )
+    submit_final_risk_review(
+        CHECK_ID,
+        FinalRiskReviewCreate(
+            decision=ReviewDecision.rejected,
+            notes="Assessment rejected.",
+            reviewed_by="human",
+        ),
+    )
+
+    saved = _load_saved_result()
+    assert "Risk assessment rejected by human reviewer." in saved.summary.overall_assessment
+    assert "Final risk approved by human reviewer." not in saved.summary.overall_assessment
+    for marker in _PENDING_SUMMARY_MARKERS:
+        assert marker not in saved.summary.overall_assessment
+    assert _STALE_FINAL_RISK_UNKNOWN not in saved.unknowns
 
 
 def test_approved_copies_preliminary_to_final(sqlite_db):
