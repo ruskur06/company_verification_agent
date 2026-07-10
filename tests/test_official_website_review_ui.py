@@ -291,8 +291,14 @@ def test_approved_review_wording_on_result_page(sqlite_db, client):
     text = response.text
 
     assert response.status_code == 200
+    assert "Official Website (human verified)" in text
+    assert "This website was verified as official by a human reviewer." in text
     assert "Official website verified by human reviewer" in text
+    assert "Website Candidate (pending verification)" not in text
+    assert "not a confirmed official website." not in text
     assert "Official website status still requires human verification." not in text
+    assert "official_website_found" in text
+    assert "website_candidate_found_pending_verification" not in text
 
 
 def test_invalid_decision_form_submit_returns_validation_error(sqlite_db, client):

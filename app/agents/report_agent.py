@@ -197,10 +197,20 @@ def _format_website_ownership_signals_markdown(result: CompanyCheckResult) -> st
     return "\n".join(lines)
 
 
+def _website_candidate_section_heading(result: CompanyCheckResult) -> str:
+    candidate = result.website_candidate
+    if candidate is not None and candidate.is_verified:
+        return "Official Website (human verified)"
+    return "Website Candidate (pending verification)"
+
+
 def _website_candidate_source_description(result: CompanyCheckResult) -> str:
     candidate = result.website_candidate
     if candidate is None:
         return ""
+
+    if candidate.is_verified:
+        return "This website was verified as official by a human reviewer."
 
     if candidate.source_title == "User-provided domain" or "provided_domain" in (candidate.reasons or []):
         return (
@@ -219,9 +229,15 @@ def _format_website_candidate_markdown(result: CompanyCheckResult) -> str:
     if candidate is None:
         return "- No website candidate detected from relevant sources."
 
+    status_line = (
+        "- Status: **official website verified by human reviewer**"
+        if candidate.is_verified
+        else "- Status: **candidate pending human verification**"
+    )
+
     return "\n".join(
         [
-            "- Status: **candidate pending human verification**",
+            status_line,
             f"- Candidate URL: `{candidate.candidate_url}`",
             f"- Candidate domain: `{candidate.candidate_domain}`",
             f"- Score: `{candidate.score}`",
@@ -312,7 +328,7 @@ Sources found: {len(result.sources)}
 
 {_format_domain_dns_markdown(result.domain_dns, heading="Warnings")}
 
-## 5a. Website Candidate (pending verification)
+## 5a. {_website_candidate_section_heading(result)}
 
 {_format_website_candidate_markdown(result)}
 

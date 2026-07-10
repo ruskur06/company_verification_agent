@@ -212,11 +212,17 @@
             </section>
 
             <section class="section">
+                {% if result.website_candidate and result.website_candidate.is_verified %}
+                <h2>Official Website (human verified)</h2>
+                {% else %}
                 <h2>Website Candidate (pending verification)</h2>
+                {% endif %}
 
                 {% if result.website_candidate %}
                     <p class="muted">
-                        {% if result.website_candidate.source_title == "User-provided domain" or "provided_domain" in (result.website_candidate.reasons or []) %}
+                        {% if result.website_candidate.is_verified %}
+                            This website was verified as official by a human reviewer.
+                        {% elif result.website_candidate.source_title == "User-provided domain" or "provided_domain" in (result.website_candidate.reasons or []) %}
                             This is a candidate website from the user-provided domain,
                             not a confirmed official website.
                         {% else %}

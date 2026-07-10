@@ -24,12 +24,12 @@ from app.db.repositories import (
     save_company_check,
     update_company_check_after_refresh,
     update_final_risk_review,
-    update_official_website_review,
 )
 from app.schemas.company_check import (
     CheckStatus,
     CompanyCheckResponse,
     CompanyCheckResult,
+    DomainDnsInfo,
     RefreshReportResponse,
     RiskInfo,
     SummaryInfo,
@@ -42,7 +42,7 @@ from app.schemas.official_website_review import (
     OfficialWebsiteReviewDecision,
     OfficialWebsiteReviewResponse,
 )
-from app.schemas.risk import HumanReviewStatus, RiskLevel, RiskScoreInput
+from app.schemas.risk import HumanReviewStatus, RiskLevel, RiskScoreInput, RiskScoreResult
 from app.schemas.source import (
     ConfidenceLevel,
     ManualSourceCreate,
@@ -51,6 +51,8 @@ from app.schemas.source import (
     SourceResult,
     SourceType,
 )
+from app.schemas.website_candidate import WebsiteCandidate
+from app.schemas.website_ownership_signals import WebsiteOwnershipSignals
 from app.tools.entity_matcher import source_coverage_flags, verified_coverage_sources
 from app.tools.risk_input_helpers import build_domain_risk_fields, build_ownership_risk_fields
 from app.tools.official_website_review import apply_official_website_review_to_candidate
@@ -183,6 +185,12 @@ def submit_official_website_review(
     except ValueError as exc:
         raise ValueError(f"Invalid company check id: {check_id_str}") from exc
 
+    db_record = get_saved_company_check(check_id_str)
+    if db_record is None:
+        raise ValueError(f"Company check {check_id_str} was not found.")
+    if db_record.get("is_locked"):
+        raise CompanyCheckLockedError(f"Company check {check_id_str} is already finalized.")
+
     result = load_company_check(check_id_int)
     if result is None:
         raise ValueError(f"Company check {check_id_str} was not found.")
@@ -202,16 +210,31 @@ def submit_official_website_review(
         result.website_candidate,
         official_review,
     )
+    result.risk = _recalculate_preliminary_risk(
+        result,
+        sources=result.sources,
+        website_candidate=result.website_candidate,
+        candidate_domain_dns=result.candidate_domain_dns,
+        website_ownership_signals=result.website_ownership_signals,
+    )
 
-    _report_agent.save(result)
+    _, markdown_report_path = _report_agent.save(result)
+    json_report_path = str(json_path_for_check(check_id_int))
+
+    payload = result.model_dump(mode="json")
+    payload["check_id"] = check_id_str
+    payload["json_report_path"] = json_report_path
+    payload["markdown_report_path"] = str(markdown_report_path)
 
     try:
-        update_official_website_review(
-            check_id_str,
-            official_review.model_dump(mode="json"),
+        update_company_check_after_refresh(
+            payload,
+            official_website_review_data=official_review.model_dump(mode="json"),
         )
     except CompanyCheckNotFoundError as exc:
         raise ValueError(str(exc)) from exc
+    except CompanyCheckLockedError:
+        raise
 
     return OfficialWebsiteReviewResponse(
         check_id=check_id_int,
@@ -338,6 +361,92 @@ def _build_refreshed_unknowns(result: CompanyCheckResult, has_verified_sources: 
     return unknowns
 
 
+def _build_risk_score_input(
+    result: CompanyCheckResult,
+    *,
+    sources: list[SourceResult],
+    website_candidate: WebsiteCandidate | None,
+    candidate_domain_dns: DomainDnsInfo | None,
+    website_ownership_signals: WebsiteOwnershipSignals | None,
+) -> RiskScoreInput:
+    verified_sources = verified_coverage_sources(sources)
+    source_coverage = source_coverage_flags(sources)
+    verified_sources_for_risk = verified_sources if verified_sources else []
+    negative_snippets_count = count_negative_snippets(verified_sources_for_risk)
+    suspicious_keywords = extract_suspicious_keywords(verified_sources_for_risk)
+
+    domain_risk_fields = build_domain_risk_fields(
+        user_domain=result.company.domain,
+        domain_dns=result.domain_dns,
+        candidate_domain_dns=candidate_domain_dns,
+        website_candidate=website_candidate,
+    )
+    if website_ownership_signals is not None:
+        ownership_risk_fields = build_ownership_risk_fields(website_ownership_signals)
+    else:
+        ownership_risk_fields = {
+            "has_ownership_signals": False,
+            "ownership_signals_score": 0.0,
+        }
+
+    return RiskScoreInput(
+        **domain_risk_fields,
+        **ownership_risk_fields,
+        negative_snippets_count=negative_snippets_count,
+        registry_found=result.registry_check.registry_found,
+        registry_is_mock=result.registry_check.is_mock,
+        multiple_sources_confirm=bool(source_coverage["multiple_sources_confirm"]),
+        suspicious_keywords_found=suspicious_keywords,
+        source_count=len(sources),
+        all_sources_mock=bool(source_coverage["all_sources_mock"]),
+        verified_non_mock_source_count=int(source_coverage["verified_non_mock_source_count"]),
+        verified_strong_source_count=int(source_coverage["verified_strong_source_count"]),
+        has_high_confidence_verified_source=bool(
+            source_coverage["has_high_confidence_verified_source"]
+        ),
+    )
+
+
+def _build_risk_info_from_result(
+    result: CompanyCheckResult,
+    risk_result: RiskScoreResult,
+) -> RiskInfo:
+    return RiskInfo(
+        preliminary_score=risk_result.score,
+        preliminary_level=risk_result.level,
+        verification_confidence=risk_result.verification_confidence,
+        verification_risk=risk_result.verification_risk,
+        business_risk=risk_result.business_risk,
+        factors=risk_result.factors,
+        requires_human_review=risk_result.requires_human_review,
+        final_score=result.risk.final_score,
+        final_level=result.risk.final_level,
+        human_review_status=result.risk.human_review_status,
+        notes=result.risk.notes,
+        reviewed_by=result.risk.reviewed_by,
+        reviewed_at=result.risk.reviewed_at,
+    )
+
+
+def _recalculate_preliminary_risk(
+    result: CompanyCheckResult,
+    *,
+    sources: list[SourceResult],
+    website_candidate: WebsiteCandidate | None,
+    candidate_domain_dns: DomainDnsInfo | None,
+    website_ownership_signals: WebsiteOwnershipSignals | None,
+) -> RiskInfo:
+    risk_input = _build_risk_score_input(
+        result,
+        sources=sources,
+        website_candidate=website_candidate,
+        candidate_domain_dns=candidate_domain_dns,
+        website_ownership_signals=website_ownership_signals,
+    )
+    risk_result = _risk_agent.run(risk_input)
+    return _build_risk_info_from_result(result, risk_result)
+
+
 def refresh_company_check_report(company_check_id: int | str) -> RefreshReportResponse:
     """Reload sources from DB, recalculate risk, and regenerate JSON/Markdown output."""
     check_id_str = str(company_check_id).strip()
@@ -364,19 +473,6 @@ def refresh_company_check_report(company_check_id: int | str) -> RefreshReportRe
 
     sources = [_db_source_to_source_result(source) for source in get_sources_for_company_check(check_id_str)]
     verified_sources = verified_coverage_sources(sources)
-    source_coverage = source_coverage_flags(sources)
-    all_sources_mock = bool(source_coverage["all_sources_mock"])
-    has_high_confidence_verified_source = bool(
-        source_coverage["has_high_confidence_verified_source"]
-    )
-    verified_strong_source_count = int(source_coverage["verified_strong_source_count"])
-
-    verified_sources_for_risk = verified_sources if verified_sources else []
-    negative_snippets_count = count_negative_snippets(verified_sources_for_risk)
-    suspicious_keywords = extract_suspicious_keywords(verified_sources_for_risk)
-
-    domain_dns = result.domain_dns
-    registry_check = result.registry_check
     preserved_review = result.official_website_review
     website_candidate = find_website_candidate(result.company.name, sources)
     if website_candidate is None:
@@ -389,12 +485,6 @@ def refresh_company_check_report(company_check_id: int | str) -> RefreshReportRe
     if website_candidate is not None:
         candidate_domain_dns = _domain_agent.run(website_candidate.candidate_domain)
 
-    domain_risk_fields = build_domain_risk_fields(
-        user_domain=result.company.domain,
-        domain_dns=domain_dns,
-        candidate_domain_dns=candidate_domain_dns,
-        website_candidate=website_candidate,
-    )
     website_ownership_signals = collect_ownership_signals(
         company_name=result.company.name,
         country=result.company.country,
@@ -402,21 +492,13 @@ def refresh_company_check_report(company_check_id: int | str) -> RefreshReportRe
         candidate_domain_dns=candidate_domain_dns,
         relevant_sources=relevant_sources_for_ownership(sources),
     )
-    ownership_risk_fields = build_ownership_risk_fields(website_ownership_signals)
 
-    risk_input = RiskScoreInput(
-        **domain_risk_fields,
-        **ownership_risk_fields,
-        negative_snippets_count=negative_snippets_count,
-        registry_found=registry_check.registry_found,
-        registry_is_mock=registry_check.is_mock,
-        multiple_sources_confirm=bool(source_coverage["multiple_sources_confirm"]),
-        suspicious_keywords_found=suspicious_keywords,
-        source_count=len(sources),
-        all_sources_mock=all_sources_mock,
-        verified_non_mock_source_count=int(source_coverage["verified_non_mock_source_count"]),
-        verified_strong_source_count=verified_strong_source_count,
-        has_high_confidence_verified_source=has_high_confidence_verified_source,
+    risk_input = _build_risk_score_input(
+        result,
+        sources=sources,
+        website_candidate=website_candidate,
+        candidate_domain_dns=candidate_domain_dns,
+        website_ownership_signals=website_ownership_signals,
     )
     risk_result = _risk_agent.run(risk_input)
 
@@ -431,21 +513,7 @@ def refresh_company_check_report(company_check_id: int | str) -> RefreshReportRe
         verification_confidence=risk_result.verification_confidence,
     )
     result.unknowns = _build_refreshed_unknowns(result, bool(verified_sources))
-    result.risk = RiskInfo(
-        preliminary_score=risk_result.score,
-        preliminary_level=risk_result.level,
-        verification_confidence=risk_result.verification_confidence,
-        verification_risk=risk_result.verification_risk,
-        business_risk=risk_result.business_risk,
-        factors=risk_result.factors,
-        requires_human_review=risk_result.requires_human_review,
-        final_score=result.risk.final_score,
-        final_level=result.risk.final_level,
-        human_review_status=result.risk.human_review_status,
-        notes=result.risk.notes,
-        reviewed_by=result.risk.reviewed_by,
-        reviewed_at=result.risk.reviewed_at,
-    )
+    result.risk = _build_risk_info_from_result(result, risk_result)
 
     _, markdown_report_path = _report_agent.save(result)
     json_report_path = str(json_path_for_check(check_id))

@@ -124,11 +124,32 @@ def test_result_template_shows_candidate_domain_dns_section():
     assert "candidate_domain_dns" in template
 
 
-def test_result_template_shows_website_candidate_section():
+def test_report_includes_verified_website_section_when_candidate_is_verified():
+    data = valid_company_check_data()
+    data["website_candidate"] = {
+        "candidate_url": "https://servochron.com",
+        "candidate_domain": "servochron.com",
+        "score": 0.8,
+        "confidence": "medium",
+        "reasons": ["domain_contains_company_name", "https_scheme"],
+        "source_title": "SERVOCHRON GmbH official website",
+        "is_verified": True,
+    }
+
+    markdown = ReportAgent().build_markdown(CompanyCheckResult.model_validate(data))
+
+    assert "Official Website (human verified)" in markdown
+    assert "This website was verified as official by a human reviewer." in markdown
+    assert "Website Candidate (pending verification)" not in markdown
+    assert "not a confirmed official website." not in markdown
+
+
+def test_result_template_shows_verified_website_wording():
     template = Path("app/web/templates/result.html").read_text(encoding="utf-8")
 
+    assert "Official Website (human verified)" in template
+    assert "This website was verified as official by a human reviewer." in template
     assert "Website Candidate (pending verification)" in template
-    assert "not a confirmed official website" in template
 
 
 def test_report_includes_website_candidate_section_when_present():

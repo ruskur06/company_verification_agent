@@ -492,7 +492,11 @@ def update_final_risk_review(company_check_id: str, review_data: dict) -> None:
         session.close()
 
 
-def update_company_check_after_refresh(result: dict) -> None:
+def update_company_check_after_refresh(
+    result: dict,
+    *,
+    official_website_review_data: dict | None = None,
+) -> None:
     """Update company check metadata and append a refreshed report record."""
     check_id = str(result.get("check_id", "")).strip()
     if not check_id:
@@ -522,6 +526,18 @@ def update_company_check_after_refresh(result: dict) -> None:
             raise CompanyCheckNotFoundError(f"Company check {check_id} was not found.")
         if record.is_locked:
             raise CompanyCheckLockedError(f"Company check {check_id} is already finalized.")
+
+        if official_website_review_data is not None:
+            record.official_website_review_decision = str(
+                official_website_review_data.get("decision", "pending")
+            )
+            record.official_website_review_note = official_website_review_data.get("note")
+            record.official_website_review_reviewed_by = official_website_review_data.get(
+                "reviewed_by"
+            )
+            record.official_website_review_reviewed_at = _parse_datetime(
+                official_website_review_data.get("reviewed_at")
+            )
 
         record.risk_score = risk_score
         record.risk_level = risk_level
