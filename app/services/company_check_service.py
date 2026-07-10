@@ -379,6 +379,8 @@ def refresh_company_check_report(company_check_id: int | str) -> RefreshReportRe
     registry_check = result.registry_check
     preserved_review = result.official_website_review
     website_candidate = find_website_candidate(result.company.name, sources)
+    if website_candidate is None:
+        website_candidate = result.website_candidate
     website_candidate = apply_official_website_review_to_candidate(
         website_candidate,
         preserved_review,

@@ -218,7 +218,8 @@ def test_result_page_shows_review_form_when_candidate_created_from_provided_doma
     assert "Final risk assessment requires human review." in text
     assert "This is a candidate website from the user-provided domain" in text
     assert "not a confirmed official website." in text
-    assert "relevant web search results" not in text
+    assert "website_candidate_found_pending_verification" in text
+    assert "official_website_found" not in text
     assert "munchy.at" in text
     assert "https://munchy.at" in text
 

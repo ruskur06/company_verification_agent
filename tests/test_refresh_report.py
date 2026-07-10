@@ -10,6 +10,7 @@ from app.agents.report_agent import json_path_for_check
 from app.db import database
 from app.db.models import ReportRecord, SourceRecord
 from app.schemas.company_check import DomainDnsInfo, DomainDnsStatus
+from app.schemas.official_website_review import OfficialWebsiteReviewDecision
 from app.db.repositories import (
     add_source_to_company_check,
     get_sources_for_company_check,
@@ -277,3 +278,147 @@ def test_refresh_report_recomputes_website_candidate_from_saved_sources(sqlite_d
     assert "Candidate Domain DNS/HTTPS (pending ownership verification)" in markdown
     assert "Website Ownership Signals (pending verification)" in markdown
     assert "servochron.com" in markdown
+
+
+def _provided_domain_candidate_payload() -> dict:
+    return {
+        "candidate_url": "https://munchy.at",
+        "candidate_domain": "munchy.at",
+        "score": 0.5,
+        "confidence": "medium",
+        "reasons": ["provided_domain"],
+        "source_title": "User-provided domain",
+        "is_verified": False,
+    }
+
+
+def _write_initial_json_with_provided_domain_candidate(
+    *,
+    check_id: str = CHECK_ID,
+    is_verified: bool = False,
+    official_review_decision: str | None = None,
+) -> None:
+    data = valid_company_check_data()
+    data["check_id"] = int(check_id)
+    data["company"]["name"] = "Munchy Gastro GmbH"
+    data["company"]["domain"] = "munchy.at"
+    data["domain_dns"] = {
+        "status": "checked",
+        "domain": "munchy.at",
+        "has_a_record": True,
+        "has_mx_record": True,
+        "has_txt_record": False,
+        "https_available": True,
+        "warnings": [],
+    }
+    data["website_candidate"] = _provided_domain_candidate_payload()
+    data["website_candidate"]["is_verified"] = is_verified
+    if official_review_decision is not None:
+        data["official_website_review"] = {
+            "decision": official_review_decision,
+            "note": "Confirmed manually.",
+            "reviewed_by": "human",
+            "reviewed_at": "2026-01-02T00:00:00+00:00",
+        }
+
+    path = json_path_for_check(int(check_id))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data), encoding="utf-8")
+
+
+def test_refresh_report_preserves_provided_domain_candidate_when_sources_have_no_match(
+    sqlite_db,
+    monkeypatch,
+):
+    mock_domain_agent = MagicMock()
+    mock_domain_agent.run.return_value = DomainDnsInfo(
+        status=DomainDnsStatus.checked,
+        domain="munchy.at",
+        has_a_record=True,
+        https_available=True,
+    )
+    monkeypatch.setattr("app.services.company_check_service._domain_agent", mock_domain_agent)
+
+    _write_initial_json_with_provided_domain_candidate()
+    save_company_check(sample_check_result(CHECK_ID))
+
+    response = refresh_company_check_report(CHECK_ID)
+
+    candidate = response.json_result.website_candidate
+    assert candidate is not None
+    assert candidate.candidate_domain == "munchy.at"
+    assert candidate.candidate_url == "https://munchy.at"
+    assert candidate.source_title == "User-provided domain"
+    assert candidate.reasons == ["provided_domain"]
+    assert candidate.score == 0.5
+    assert candidate.confidence.value == "medium"
+    assert candidate.is_verified is False
+    assert response.json_result.candidate_domain_dns is not None
+    assert response.json_result.candidate_domain_dns.domain == "munchy.at"
+    mock_domain_agent.run.assert_called_once_with("munchy.at")
+
+
+def test_refresh_report_applies_approved_review_to_preserved_provided_domain_candidate(
+    sqlite_db,
+    monkeypatch,
+):
+    mock_domain_agent = MagicMock()
+    mock_domain_agent.run.return_value = DomainDnsInfo(
+        status=DomainDnsStatus.checked,
+        domain="munchy.at",
+        has_a_record=True,
+        https_available=True,
+    )
+    monkeypatch.setattr("app.services.company_check_service._domain_agent", mock_domain_agent)
+
+    _write_initial_json_with_provided_domain_candidate(
+        official_review_decision=OfficialWebsiteReviewDecision.approved.value,
+    )
+    save_company_check(sample_check_result(CHECK_ID))
+
+    response = refresh_company_check_report(CHECK_ID)
+
+    candidate = response.json_result.website_candidate
+    assert candidate is not None
+    assert candidate.candidate_domain == "munchy.at"
+    assert candidate.candidate_url == "https://munchy.at"
+    assert candidate.is_verified is True
+
+    factor_names = [factor.name for factor in response.json_result.risk.factors]
+    assert "official_website_found" in factor_names
+    assert "website_candidate_found_pending_verification" not in factor_names
+
+
+def test_refresh_report_without_candidate_stays_none(sqlite_db):
+    _write_initial_json()
+    save_company_check(sample_check_result(CHECK_ID))
+
+    response = refresh_company_check_report(CHECK_ID)
+
+    assert response.json_result.website_candidate is None
+    assert response.json_result.candidate_domain_dns is None
+
+
+def test_refresh_report_preserves_final_risk_review_state(sqlite_db):
+    data = valid_company_check_data()
+    data["check_id"] = int(CHECK_ID)
+    data["risk"]["human_review_status"] = "approved"
+    data["risk"]["final_score"] = 42
+    data["risk"]["final_level"] = "medium"
+    data["risk"]["notes"] = "Approved after manual review."
+    data["risk"]["reviewed_by"] = "human"
+    data["risk"]["reviewed_at"] = "2026-01-02T00:00:00+00:00"
+
+    path = json_path_for_check(int(CHECK_ID))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data), encoding="utf-8")
+    save_company_check(sample_check_result(CHECK_ID))
+
+    response = refresh_company_check_report(CHECK_ID)
+
+    assert response.json_result.risk.human_review_status.value == "approved"
+    assert response.json_result.risk.final_score == 42
+    assert response.json_result.risk.final_level.value == "medium"
+    assert response.json_result.risk.notes == "Approved after manual review."
+    assert response.json_result.risk.reviewed_by == "human"
+    assert response.json_result.risk.reviewed_at is not None

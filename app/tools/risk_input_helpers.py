@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from app.schemas.company_check import DomainDnsInfo
+from app.schemas.website_candidate import WebsiteCandidate
 from app.schemas.website_ownership_signals import OwnershipSignalsStatus, WebsiteOwnershipSignals
 
 
@@ -22,12 +23,19 @@ def build_domain_risk_fields(
     website_candidate: WebsiteCandidate | None,
 ) -> dict[str, bool]:
     user_domain_provided = bool(user_domain)
-    has_website = user_domain_provided and domain_dns.https_available
+    has_website = bool(
+        website_candidate is not None
+        and website_candidate.is_verified
+    )
+    has_website_candidate = bool(
+        website_candidate is not None
+        and not website_candidate.is_verified
+    )
     candidate_succeeds = candidate_domain_dns_succeeds(candidate_domain_dns)
 
     return {
         "has_website": has_website,
-        "has_website_candidate": website_candidate is not None and not has_website,
+        "has_website_candidate": has_website_candidate,
         "user_domain_provided": user_domain_provided,
         "candidate_domain_dns_succeeds": candidate_succeeds,
         "candidate_has_mx_record": bool(

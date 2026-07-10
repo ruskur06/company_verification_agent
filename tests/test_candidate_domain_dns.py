@@ -10,6 +10,7 @@ from app.schemas.name_normalizer import NameNormalizerInput
 from app.schemas.registry import RegistryCheckResult, RegistryCheckStatus
 from app.schemas.risk import HumanReviewStatus, RiskScoreInput
 from app.schemas.source import ConfidenceLevel, RelevanceLevel, SourceResult, SourceType
+from app.schemas.website_candidate import WebsiteCandidate
 from app.tools.risk_input_helpers import (
     build_domain_risk_fields,
     candidate_domain_dns_succeeds,
@@ -288,6 +289,115 @@ def test_build_domain_risk_fields_separates_user_and_candidate_domains():
     assert fields["candidate_domain_dns_succeeds"] is True
     assert fields["has_website"] is False
     assert fields["has_website_candidate"] is True
+
+
+def _unverified_servochron_candidate() -> WebsiteCandidate:
+    return WebsiteCandidate(
+        candidate_url="https://servochron.com",
+        candidate_domain="servochron.com",
+        score=0.8,
+        confidence=ConfidenceLevel.medium,
+        reasons=["domain_contains_company_name"],
+        source_title="SERVOCHRON GmbH official website",
+        is_verified=False,
+    )
+
+
+def _verified_servochron_candidate() -> WebsiteCandidate:
+    return _unverified_servochron_candidate().model_copy(update={"is_verified": True})
+
+
+def _unverified_provided_domain_candidate() -> WebsiteCandidate:
+    return WebsiteCandidate(
+        candidate_url="https://munchy.at",
+        candidate_domain="munchy.at",
+        score=0.5,
+        confidence=ConfidenceLevel.medium,
+        reasons=["provided_domain"],
+        source_title="User-provided domain",
+        is_verified=False,
+    )
+
+
+def test_verified_candidate_sets_has_website_not_has_website_candidate():
+    fields = build_domain_risk_fields(
+        user_domain=None,
+        domain_dns=DomainDnsInfo(status=DomainDnsStatus.not_provided),
+        candidate_domain_dns=_checked_dns("servochron.com"),
+        website_candidate=_verified_servochron_candidate(),
+    )
+
+    assert fields["has_website"] is True
+    assert fields["has_website_candidate"] is False
+
+
+def test_unverified_provided_domain_candidate_sets_has_website_candidate_not_has_website():
+    fields = build_domain_risk_fields(
+        user_domain="munchy.at",
+        domain_dns=_checked_dns("munchy.at", https=True, has_a=True),
+        candidate_domain_dns=_checked_dns("munchy.at"),
+        website_candidate=_unverified_provided_domain_candidate(),
+    )
+
+    assert fields["has_website"] is False
+    assert fields["has_website_candidate"] is True
+
+
+def test_reachable_user_domain_without_candidate_does_not_imply_official_website():
+    fields = build_domain_risk_fields(
+        user_domain="munchy.at",
+        domain_dns=_checked_dns("munchy.at", https=True, has_a=True),
+        candidate_domain_dns=None,
+        website_candidate=None,
+    )
+
+    assert fields["has_website"] is False
+    assert fields["has_website_candidate"] is False
+    assert fields["user_domain_provided"] is True
+
+
+def test_unverified_candidate_risk_factors_use_pending_not_official():
+    fields = build_domain_risk_fields(
+        user_domain=None,
+        domain_dns=DomainDnsInfo(status=DomainDnsStatus.not_provided),
+        candidate_domain_dns=_checked_dns("servochron.com"),
+        website_candidate=_unverified_servochron_candidate(),
+    )
+    result = calculate_risk_score(
+        RiskScoreInput(
+            **fields,
+            registry_found=False,
+            registry_is_mock=True,
+            source_count=1,
+            all_sources_mock=True,
+        )
+    )
+
+    factor_names = [factor.name for factor in result.factors]
+    assert "website_candidate_found_pending_verification" in factor_names
+    assert "official_website_found" not in factor_names
+
+
+def test_verified_candidate_risk_factors_include_official_website_found():
+    fields = build_domain_risk_fields(
+        user_domain=None,
+        domain_dns=DomainDnsInfo(status=DomainDnsStatus.not_provided),
+        candidate_domain_dns=_checked_dns("servochron.com"),
+        website_candidate=_verified_servochron_candidate(),
+    )
+    result = calculate_risk_score(
+        RiskScoreInput(
+            **fields,
+            registry_found=False,
+            registry_is_mock=True,
+            source_count=1,
+            all_sources_mock=True,
+        )
+    )
+
+    factor_names = [factor.name for factor in result.factors]
+    assert "official_website_found" in factor_names
+    assert "website_candidate_found_pending_verification" not in factor_names
 
 
 def _build_test_agent(*, domain_agent: MagicMock, sources: list[SourceResult]) -> CompanyCheckAgent:
