@@ -94,8 +94,8 @@ def calculate_risk_score(input_data: RiskScoreInput) -> RiskScoreResult:
             "website_candidate_found_pending_verification",
             -8,
             (
-                "A candidate official website was found in relevant web search results, "
-                "but ownership/official status still requires human verification."
+                "A candidate website was identified, "
+                "but ownership and official status still require human verification."
             ),
         )
     else:
