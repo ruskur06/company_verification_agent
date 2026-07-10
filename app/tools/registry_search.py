@@ -12,9 +12,7 @@ from __future__ import annotations
 
 from app.schemas.registry import RegistryCheckResult, RegistryCheckStatus
 from app.schemas.source import ConfidenceLevel
-
-USA_COUNTRY_NAMES = {"usa", "united states", "us", "united states of america"}
-ISRAEL_COUNTRY_NAMES = {"israel", "il"}
+from app.tools.country_source_registry import resolve_country_source_profile
 
 KNOWN_USA_DEMO_COMPANIES = {
     "servochron",
@@ -25,14 +23,9 @@ def _normalize_name(value: str) -> str:
     return value.strip()
 
 
-def _normalize_country(value: str) -> str:
-    return value.strip().lower()
-
-
 def search_company_registry(company_name: str, country: str) -> RegistryCheckResult:
     """Search for a company in an official registry (mock implementation)."""
     name = _normalize_name(company_name)
-    country_normalized = _normalize_country(country)
 
     if not name:
         return RegistryCheckResult(
@@ -44,7 +37,7 @@ def search_company_registry(company_name: str, country: str) -> RegistryCheckRes
             is_mock=True,
         )
 
-    if not country_normalized:
+    if not country.strip():
         return RegistryCheckResult(
             company_name=name,
             country=country,
@@ -54,7 +47,18 @@ def search_company_registry(company_name: str, country: str) -> RegistryCheckRes
             is_mock=True,
         )
 
-    if country_normalized in ISRAEL_COUNTRY_NAMES:
+    profile = resolve_country_source_profile(country)
+    if profile is None:
+        return RegistryCheckResult(
+            company_name=name,
+            country=country,
+            status=RegistryCheckStatus.not_supported,
+            registry_found=False,
+            notes=[f"Registry search is not supported for country: {country}."],
+            is_mock=True,
+        )
+
+    if profile.country_code == "IL":
         return RegistryCheckResult(
             company_name=name,
             country=country,
@@ -64,7 +68,19 @@ def search_company_registry(company_name: str, country: str) -> RegistryCheckRes
             is_mock=True,
         )
 
-    if country_normalized in USA_COUNTRY_NAMES:
+    if profile.country_code == "AT":
+        return RegistryCheckResult(
+            company_name=name,
+            country=country,
+            status=RegistryCheckStatus.not_supported,
+            registry_found=False,
+            notes=[
+                "Austrian source profile is configured, but live registry integration is not implemented yet."
+            ],
+            is_mock=True,
+        )
+
+    if profile.country_code == "US":
         if name.lower() in KNOWN_USA_DEMO_COMPANIES:
             return RegistryCheckResult(
                 company_name=name,
