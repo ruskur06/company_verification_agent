@@ -148,3 +148,11 @@ def test_home_page_includes_checks_history_link(sqlite_db, client):
     assert response.status_code == 200
     assert 'href="/checks"' in response.text
     assert "View checks history" in response.text
+
+
+def test_check_page_includes_checks_history_link(sqlite_db, client):
+    response = client.get("/check")
+
+    assert response.status_code == 200
+    assert 'href="/checks"' in response.text
+    assert "View checks history" in response.text

@@ -50,6 +50,7 @@ templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 
 @app.get("/", response_class=HTMLResponse)
+@app.get("/check", response_class=HTMLResponse)
 def index(request: Request) -> HTMLResponse:
     """Show the web form."""
     return templates.TemplateResponse(
@@ -73,7 +74,7 @@ async def run_check_from_form(request: Request) -> RedirectResponse:
     domain = form_data.get("domain", [""])[0].strip() or None
 
     if not company_name or not country:
-        return RedirectResponse(url="/?error=missing_input", status_code=303)
+        return RedirectResponse(url="/check?error=missing_input", status_code=303)
 
     response = run_company_check(
         company_name=company_name,
