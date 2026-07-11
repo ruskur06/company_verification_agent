@@ -5,14 +5,12 @@
   "nav_audience": "Who it is for",
   "nav_access": "Data access",
   "nav_check": "Check a company",
-
   "hero_kicker": "Cross-border company verification",
   "hero_title": "Verify a foreign company before making an important deal",
   "hero_text": "Collect and compare information from official registries, company websites and open sources. See what was confirmed, what does not match and what requires additional official verification.",
   "hero_primary_cta": "Check a company",
   "hero_secondary_cta": "See how verification works",
   "hero_note": "Source-linked findings · Clear limitations · Human review",
-
   "report_title": "Example verification snapshot",
   "report_company": "Example Development GmbH",
   "report_country_label": "Country",
@@ -25,42 +23,61 @@
   "report_website_value": "Additional verification required",
   "report_confidence_label": "Verification confidence",
   "report_confidence_value": "Medium",
-
   "audience_kicker": "Built for important decisions",
   "audience_title": "Who the service is for",
   "audience_text": "A structured first review for people and teams working with foreign companies.",
-
   "audience_real_estate_title": "Real estate investors",
   "audience_real_estate_text": "Review developers, property sellers, agencies and companies involved in residential or commercial property transactions.",
-
   "audience_importers_title": "Importers",
   "audience_importers_text": "Review a foreign supplier, manufacturer or exporter before placing an order or making a payment.",
-
   "audience_procurement_title": "Procurement teams",
   "audience_procurement_text": "Collect and compare company information before beginning work with a new international counterparty.",
-
   "audience_legal_title": "Lawyers and advisors",
   "audience_legal_text": "Organize registry records, public sources and verification gaps for preliminary client due diligence.",
-
   "access_kicker": "Transparent by design",
   "access_title": "We do not pretend to know more than the registry",
   "access_text": "Different countries publish different amounts of company information. We show what was checked, what was found and where an official request may still be required.",
-
   "level_one_title": "Level 1 — Automatically and immediately",
   "level_one_text": "Available public information may include company name, registration number, status, registration date, registered address, online presence and differences between official and public data.",
-
   "level_two_title": "Level 2 — Automatically where supported",
   "level_two_text": "The depth of official registry information differs by country. Some jurisdictions publish detailed records, while others provide only basic company information.",
-
   "level_three_title": "Level 3 — Requires an official request",
   "level_three_text": "Official extracts, cadastral information, property records, restricted court records or other documents may require payment, identity verification, a lawyer, a notary or an official government procedure.",
-
   "audit_title": "See where every result came from",
   "audit_text": "The report is designed to show the source, access date, relevant finding, source limitation and required follow-up instead of presenting an unexplained final score.",
-
   "cta_title": "Check the company before making the decision",
   "cta_text": "Start with a structured preliminary review of available company records, official sources and public information.",
   "cta_button": "Start company check",
-
-  "footer_disclaimer": "The service provides preliminary company verification based on available registry data, official sources and publicly accessible information. It does not replace legal, financial, tax, real-estate or professional due diligence."
+  "footer_disclaimer": "The service provides preliminary company verification based on available registry data, official sources and publicly accessible information. It does not replace legal, financial, tax, real-estate or professional due diligence.",
+  "request_meta_title": "Request a Company Check | Company Verification Agent",
+  "request_meta_description": "Submit a foreign company for a structured preliminary verification request.",
+  "request_kicker": "Preliminary company verification",
+  "request_title": "Tell us which company you want to verify",
+  "request_intro": "Submit the company details below. We will review the request before any verification process begins.",
+  "request_back": "Back to overview",
+  "request_required_note": "* Required fields",
+  "request_company_name_label": "Company name",
+  "request_company_name_placeholder": "Example Development GmbH",
+  "request_country_label": "Country",
+  "request_country_placeholder": "Austria",
+  "request_email_label": "Email address",
+  "request_email_placeholder": "name@example.com",
+  "request_website_label": "Website",
+  "request_website_placeholder": "https://example.com",
+  "request_transaction_label": "Transaction or review type",
+  "request_transaction_placeholder": "Select an option",
+  "request_transaction_real_estate": "Real estate transaction",
+  "request_transaction_supplier": "Supplier verification",
+  "request_transaction_procurement": "Procurement",
+  "request_transaction_legal": "Legal advisory",
+  "request_transaction_other": "Other",
+  "request_context_label": "Additional context",
+  "request_context_placeholder": "Tell us what you need to verify or what decision you are preparing to make.",
+  "request_manual_note": "Submitting this form does not start an automatic verification. Every request is reviewed first.",
+  "request_privacy": "We will use your email only to contact you about this verification request.",
+  "request_submit": "Submit request",
+  "request_error": "Please check the required fields and enter a valid email address.",
+  "request_success_title": "Your request has been received",
+  "request_success_text": "We will review the company details and contact you using the email address provided.",
+  "request_success_back": "Return to the overview"
 }

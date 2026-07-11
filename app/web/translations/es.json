@@ -5,14 +5,12 @@
   "nav_audience": "Para quién",
   "nav_access": "Acceso a datos",
   "nav_check": "Verificar empresa",
-
   "hero_kicker": "Verificación internacional de empresas",
   "hero_title": "Verifique una empresa extranjera antes de tomar una decisión importante",
   "hero_text": "Recopile y compare información de registros oficiales, sitios web corporativos y fuentes abiertas. Vea qué se confirmó, qué no coincide y qué requiere una verificación oficial adicional.",
   "hero_primary_cta": "Verificar empresa",
   "hero_secondary_cta": "Cómo funciona la verificación",
   "hero_note": "Resultados vinculados a fuentes · Límites claros · Revisión humana",
-
   "report_title": "Ejemplo de resumen de verificación",
   "report_company": "Example Development GmbH",
   "report_country_label": "País",
@@ -25,42 +23,61 @@
   "report_website_value": "Se requiere verificación adicional",
   "report_confidence_label": "Nivel de confianza",
   "report_confidence_value": "Medio",
-
   "audience_kicker": "Creado para decisiones importantes",
   "audience_title": "Para quién está pensado el servicio",
   "audience_text": "Una revisión inicial estructurada para personas y equipos que trabajan con empresas extranjeras.",
-
   "audience_real_estate_title": "Inversores inmobiliarios",
   "audience_real_estate_text": "Revise promotores, vendedores, agencias y empresas que participan en operaciones de inmuebles residenciales o comerciales.",
-
   "audience_importers_title": "Importadores",
   "audience_importers_text": "Revise un proveedor, fabricante o exportador extranjero antes de realizar un pedido o un pago.",
-
   "audience_procurement_title": "Equipos de compras",
   "audience_procurement_text": "Recopile y compare información empresarial antes de comenzar a trabajar con una nueva contraparte internacional.",
-
   "audience_legal_title": "Abogados y asesores",
   "audience_legal_text": "Organice datos registrales, fuentes públicas y aspectos pendientes para una revisión preliminar de clientes y operaciones.",
-
   "access_kicker": "Transparencia desde el diseño",
   "access_title": "No fingimos saber más que el registro",
   "access_text": "Cada país publica un volumen distinto de información empresarial. Mostramos qué se revisó, qué se encontró y dónde todavía puede ser necesaria una solicitud oficial.",
-
   "level_one_title": "Nivel 1 — Automático e inmediato",
   "level_one_text": "La información pública disponible puede incluir nombre legal, número de registro, estado, fecha de constitución, domicilio, presencia en internet y diferencias entre datos oficiales y públicos.",
-
   "level_two_title": "Nivel 2 — Automático donde exista acceso",
   "level_two_text": "La profundidad de los datos oficiales varía según el país. Algunas jurisdicciones publican información detallada, mientras que otras solo ofrecen datos empresariales básicos.",
-
   "level_three_title": "Nivel 3 — Requiere una solicitud oficial",
   "level_three_text": "Los extractos oficiales, datos catastrales, registros de propiedad, expedientes judiciales restringidos u otros documentos pueden exigir pago, identificación, un abogado, un notario o un procedimiento oficial.",
-
   "audit_title": "Vea de dónde procede cada resultado",
   "audit_text": "El informe está diseñado para mostrar la fuente, la fecha de acceso, el hallazgo relevante, las limitaciones de la fuente y los pasos pendientes, en lugar de presentar una puntuación final sin explicación.",
-
   "cta_title": "Verifique la empresa antes de tomar la decisión",
   "cta_text": "Comience con una revisión preliminar estructurada de los registros disponibles, las fuentes oficiales y la información pública.",
   "cta_button": "Iniciar verificación",
-
-  "footer_disclaimer": "El servicio ofrece una verificación empresarial preliminar basada en datos registrales disponibles, fuentes oficiales e información de acceso público. No sustituye una debida diligencia jurídica, financiera, fiscal, inmobiliaria ni profesional."
+  "footer_disclaimer": "El servicio ofrece una verificación empresarial preliminar basada en datos registrales disponibles, fuentes oficiales e información de acceso público. No sustituye una debida diligencia jurídica, financiera, fiscal, inmobiliaria ni profesional.",
+  "request_meta_title": "Solicitar verificación de empresa | Company Verification Agent",
+  "request_meta_description": "Envíe una empresa extranjera para una verificación preliminar estructurada.",
+  "request_kicker": "Verificación preliminar de empresas",
+  "request_title": "Indíquenos qué empresa desea verificar",
+  "request_intro": "Envíe los datos de la empresa. Revisaremos la solicitud antes de iniciar cualquier proceso de verificación.",
+  "request_back": "Volver al resumen",
+  "request_required_note": "* Campos obligatorios",
+  "request_company_name_label": "Nombre de la empresa",
+  "request_company_name_placeholder": "Example Development GmbH",
+  "request_country_label": "País",
+  "request_country_placeholder": "Austria",
+  "request_email_label": "Correo electrónico",
+  "request_email_placeholder": "name@example.com",
+  "request_website_label": "Sitio web",
+  "request_website_placeholder": "https://example.com",
+  "request_transaction_label": "Tipo de operación o revisión",
+  "request_transaction_placeholder": "Seleccione una opción",
+  "request_transaction_real_estate": "Operación inmobiliaria",
+  "request_transaction_supplier": "Verificación de proveedor",
+  "request_transaction_procurement": "Compras",
+  "request_transaction_legal": "Asesoramiento jurídico",
+  "request_transaction_other": "Otro",
+  "request_context_label": "Contexto adicional",
+  "request_context_placeholder": "Indique qué necesita verificar o qué decisión está preparando.",
+  "request_manual_note": "El envío de este formulario no inicia una verificación automática. Cada solicitud se revisa primero.",
+  "request_privacy": "Usaremos su correo electrónico únicamente para contactar con usted sobre esta solicitud.",
+  "request_submit": "Enviar solicitud",
+  "request_error": "Revise los campos obligatorios e introduzca una dirección de correo válida.",
+  "request_success_title": "Hemos recibido su solicitud",
+  "request_success_text": "Revisaremos los datos de la empresa y contactaremos con usted mediante el correo electrónico indicado.",
+  "request_success_back": "Volver al resumen"
 }

@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from urllib.parse import parse_qs
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import (
     HTMLResponse,
     PlainTextResponse,
@@ -15,9 +15,12 @@ from fastapi.responses import (
 )
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from pydantic import ValidationError
 
 from app.api.routes import router
 from app.db.database import init_db
+from app.schemas.check_request import CheckRequestCreate
+from app.services.check_request_service import create_check_request
 from app.services.company_check_service import (
     list_checks_from_db,
     load_company_check,
@@ -29,6 +32,7 @@ WEB_DIR = BASE_DIR / "web"
 TEMPLATES_DIR = WEB_DIR / "templates"
 STATIC_DIR = WEB_DIR / "static"
 TRANSLATIONS_DIR = WEB_DIR / "translations"
+SUPPORTED_PUBLIC_LANGUAGES = frozenset({"en", "de", "es"})
 
 
 @asynccontextmanager
@@ -82,6 +86,56 @@ def _render_landing(request: Request, language: str) -> HTMLResponse:
     )
 
 
+
+def _require_supported_public_language(
+    language: str,
+) -> str:
+    """Return a supported public language or raise 404."""
+    if language not in SUPPORTED_PUBLIC_LANGUAGES:
+        raise HTTPException(
+            status_code=404,
+            detail="Language not supported",
+        )
+
+    return language
+
+
+def _form_value(
+    form_data: dict[str, list[str]],
+    field_name: str,
+) -> str:
+    """Read one HTML form value safely."""
+    return form_data.get(field_name, [""])[0]
+
+
+def _render_check_request(
+    request: Request,
+    language: str,
+    *,
+    form_values: dict[str, str] | None = None,
+    error: str | None = None,
+    submitted: bool = False,
+    status_code: int = 200,
+) -> HTMLResponse:
+    """Render the localized public request page."""
+    language = _require_supported_public_language(
+        language
+    )
+
+    return templates.TemplateResponse(
+        request=request,
+        name="request_check.html",
+        context={
+            "language": language,
+            "copy": _load_landing_copy(language),
+            "form_values": form_values or {},
+            "error": error,
+            "submitted": submitted,
+        },
+        status_code=status_code,
+    )
+
+
 @app.get("/")
 def landing_root() -> RedirectResponse:
     """Redirect the root URL to the default English landing page."""
@@ -117,6 +171,122 @@ def landing_german(request: Request) -> HTMLResponse:
 def landing_spanish(request: Request) -> HTMLResponse:
     """Show the Spanish landing page."""
     return _render_landing(request, "es")
+
+
+
+@app.get(
+    "/{language}/request-check",
+    response_class=HTMLResponse,
+)
+def request_check_form(
+    request: Request,
+    language: str,
+) -> HTMLResponse:
+    """Show the localized public request form."""
+    return _render_check_request(
+        request,
+        language,
+    )
+
+
+@app.post(
+    "/{language}/request-check",
+    response_class=HTMLResponse,
+)
+async def submit_check_request_form(
+    request: Request,
+    language: str,
+) -> HTMLResponse:
+    """Save a request without running verification."""
+    language = _require_supported_public_language(
+        language
+    )
+
+    body = await request.body()
+
+    form_data = parse_qs(
+        body.decode("utf-8"),
+        keep_blank_values=True,
+    )
+
+    form_values = {
+        "company_name": _form_value(
+            form_data,
+            "company_name",
+        ),
+        "country": _form_value(
+            form_data,
+            "country",
+        ),
+        "email": _form_value(
+            form_data,
+            "email",
+        ),
+        "website": _form_value(
+            form_data,
+            "website",
+        ),
+        "transaction_type": _form_value(
+            form_data,
+            "transaction_type",
+        ),
+        "additional_context": _form_value(
+            form_data,
+            "additional_context",
+        ),
+    }
+
+    honeypot_value = _form_value(
+        form_data,
+        "company_website",
+    ).strip()
+
+    if honeypot_value:
+        return _render_check_request(
+            request,
+            language,
+            submitted=True,
+        )
+
+    try:
+        request_data = CheckRequestCreate(
+            company_name=(
+                form_values["company_name"]
+            ),
+            country=form_values["country"],
+            email=form_values["email"],
+            website=(
+                form_values["website"]
+                or None
+            ),
+            transaction_type=(
+                form_values["transaction_type"]
+                or None
+            ),
+            additional_context=(
+                form_values["additional_context"]
+                or None
+            ),
+            preferred_language=language,
+        )
+    except ValidationError:
+        copy = _load_landing_copy(language)
+
+        return _render_check_request(
+            request,
+            language,
+            form_values=form_values,
+            error=copy["request_error"],
+            status_code=422,
+        )
+
+    create_check_request(request_data)
+
+    return _render_check_request(
+        request,
+        language,
+        submitted=True,
+    )
 
 
 @app.get("/internal/check", response_class=HTMLResponse)

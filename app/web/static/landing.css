@@ -507,3 +507,208 @@ h1 {
         padding: 30px;
     }
 }
+
+
+/* Public check request form */
+
+.request-page {
+    min-height: calc(100vh - 170px);
+    padding: 82px 0 96px;
+}
+
+.request-layout {
+    display: grid;
+    grid-template-columns:
+        minmax(0, 0.9fr)
+        minmax(420px, 0.7fr);
+    gap: 72px;
+    align-items: start;
+}
+
+.request-back-link {
+    margin-left: auto;
+    color: var(--muted);
+    font-size: 14px;
+    font-weight: 700;
+}
+
+.request-back-link:hover {
+    color: var(--text);
+}
+
+.request-title {
+    max-width: 680px;
+    font-size: clamp(40px, 5vw, 62px);
+}
+
+.request-intro {
+    max-width: 650px;
+    margin: 26px 0 0;
+    color: var(--muted);
+    font-size: 19px;
+}
+
+.request-process-note {
+    max-width: 620px;
+    margin-top: 34px;
+    padding: 20px 22px;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    background: rgba(79, 140, 255, 0.07);
+    color: #c8d8f3;
+}
+
+.request-card {
+    padding: 32px;
+    border: 1px solid var(--border);
+    border-radius: 24px;
+    background: var(--surface);
+    box-shadow: var(--shadow);
+}
+
+.required-note {
+    margin: 0 0 22px;
+    color: var(--muted);
+    font-size: 13px;
+}
+
+.request-form {
+    display: grid;
+    gap: 21px;
+}
+
+.form-field {
+    display: grid;
+    gap: 8px;
+}
+
+.form-field label {
+    font-size: 14px;
+    font-weight: 800;
+}
+
+.form-field label span {
+    color: var(--attention);
+}
+
+.form-field input,
+.form-field select,
+.form-field textarea {
+    width: 100%;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: rgba(8, 17, 31, 0.74);
+    color: var(--text);
+    font: inherit;
+}
+
+.form-field input,
+.form-field select {
+    min-height: 50px;
+    padding: 11px 14px;
+}
+
+.form-field textarea {
+    min-height: 142px;
+    padding: 13px 14px;
+    resize: vertical;
+}
+
+.form-field input::placeholder,
+.form-field textarea::placeholder {
+    color: #6f7e94;
+}
+
+.form-field input:focus,
+.form-field select:focus,
+.form-field textarea:focus {
+    border-color: var(--primary);
+    outline: 3px solid rgba(79, 140, 255, 0.16);
+}
+
+.request-submit {
+    width: 100%;
+    border: 0;
+    cursor: pointer;
+    font: inherit;
+}
+
+.privacy-note {
+    margin: -4px 0 0;
+    color: var(--muted);
+    font-size: 13px;
+}
+
+.form-error {
+    margin-bottom: 22px;
+    padding: 14px 16px;
+    border: 1px solid rgba(255, 211, 122, 0.45);
+    border-radius: 12px;
+    background: rgba(255, 211, 122, 0.08);
+    color: #ffe1a1;
+}
+
+.honeypot-field {
+    position: absolute;
+    left: -10000px;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+}
+
+.request-success {
+    min-height: 430px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+}
+
+.success-mark {
+    width: 58px;
+    height: 58px;
+    display: grid;
+    place-items: center;
+    border-radius: 18px;
+    background: rgba(96, 217, 160, 0.12);
+    color: var(--positive);
+    font-size: 28px;
+    font-weight: 900;
+}
+
+.request-success h2 {
+    margin: 26px 0 0;
+    font-size: 31px;
+    line-height: 1.15;
+}
+
+.request-success p {
+    margin: 18px 0 28px;
+    color: var(--muted);
+}
+
+@media (max-width: 900px) {
+    .request-layout {
+        grid-template-columns: 1fr;
+        gap: 46px;
+    }
+
+    .request-back-link {
+        display: none;
+    }
+}
+
+@media (max-width: 620px) {
+    .request-page {
+        padding: 54px 0 72px;
+    }
+
+    .request-card {
+        padding: 23px;
+        border-radius: 18px;
+    }
+
+    .request-title {
+        font-size: 39px;
+    }
+}

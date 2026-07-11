@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="{{ language }}">
+<head>
+    <meta charset="UTF-8">
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1"
+    >
+    <meta
+        name="description"
+        content="{{ copy.request_meta_description }}"
+    >
+    <title>{{ copy.request_meta_title }}</title>
+
+    <link
+        rel="stylesheet"
+        href="/static/landing.css"
+    >
+</head>
+<body>
+    <header class="site-header">
+        <div class="shell header-row">
+            <a
+                class="brand"
+                href="/{{ language }}"
+            >
+                <span
+                    class="brand-mark"
+                    aria-hidden="true"
+                >
+                    ✓
+                </span>
+
+                <span>
+                    {{ copy.brand }}
+                </span>
+            </a>
+
+            <a
+                class="request-back-link"
+                href="/{{ language }}"
+            >
+                {{ copy.request_back }}
+            </a>
+
+            <nav
+                class="language-switcher"
+                aria-label="Language"
+            >
+                <a
+                    href="/en/request-check"
+                    {% if language == "en" %}
+                    aria-current="page"
+                    {% endif %}
+                >
+                    EN
+                </a>
+
+                <a
+                    href="/de/request-check"
+                    {% if language == "de" %}
+                    aria-current="page"
+                    {% endif %}
+                >
+                    DE
+                </a>
+
+                <a
+                    href="/es/request-check"
+                    {% if language == "es" %}
+                    aria-current="page"
+                    {% endif %}
+                >
+                    ES
+                </a>
+            </nav>
+        </div>
+    </header>
+
+    <main class="request-page">
+        <div class="shell request-layout">
+            <section class="request-introduction">
+                <p class="eyebrow">
+                    {{ copy.request_kicker }}
+                </p>
+
+                <h1 class="request-title">
+                    {{ copy.request_title }}
+                </h1>
+
+                <p class="request-intro">
+                    {{ copy.request_intro }}
+                </p>
+
+                <div class="request-process-note">
+                    <strong>
+                        {{ copy.request_manual_note }}
+                    </strong>
+                </div>
+            </section>
+
+            <section class="request-card">
+                {% if submitted %}
+                    <div
+                        class="request-success"
+                        role="status"
+                    >
+                        <div
+                            class="success-mark"
+                            aria-hidden="true"
+                        >
+                            ✓
+                        </div>
+
+                        <h2>
+                            {{ copy.request_success_title }}
+                        </h2>
+
+                        <p>
+                            {{ copy.request_success_text }}
+                        </p>
+
+                        <a
+                            href="/{{ language }}"
+                            class="button button-primary"
+                        >
+                            {{ copy.request_success_back }}
+                        </a>
+                    </div>
+                {% else %}
+                    <p class="required-note">
+                        {{ copy.request_required_note }}
+                    </p>
+
+                    {% if error %}
+                        <div
+                            class="form-error"
+                            role="alert"
+                        >
+                            {{ error }}
+                        </div>
+                    {% endif %}
+
+                    <form
+                        method="post"
+                        action="/{{ language }}/request-check"
+                        class="request-form"
+                    >
+                        <div class="form-field">
+                            <label for="company_name">
+                                {{ copy.request_company_name_label }}
+                                <span aria-hidden="true">*</span>
+                            </label>
+
+                            <input
+                                id="company_name"
+                                name="company_name"
+                                type="text"
+                                maxlength="255"
+                                value="{{ form_values.get('company_name', '') }}"
+                                placeholder="{{ copy.request_company_name_placeholder }}"
+                                autocomplete="organization"
+                                required
+                            >
+                        </div>
+
+                        <div class="form-field">
+                            <label for="country">
+                                {{ copy.request_country_label }}
+                                <span aria-hidden="true">*</span>
+                            </label>
+
+                            <input
+                                id="country"
+                                name="country"
+                                type="text"
+                                maxlength="100"
+                                value="{{ form_values.get('country', '') }}"
+                                placeholder="{{ copy.request_country_placeholder }}"
+                                autocomplete="country-name"
+                                required
+                            >
+                        </div>
+
+                        <div class="form-field">
+                            <label for="email">
+                                {{ copy.request_email_label }}
+                                <span aria-hidden="true">*</span>
+                            </label>
+
+                            <input
+                                id="email"
+                                name="email"
+                                type="email"
+                                maxlength="320"
+                                value="{{ form_values.get('email', '') }}"
+                                placeholder="{{ copy.request_email_placeholder }}"
+                                autocomplete="email"
+                                required
+                            >
+                        </div>
+
+                        <div class="form-field">
+                            <label for="website">
+                                {{ copy.request_website_label }}
+                            </label>
+
+                            <input
+                                id="website"
+                                name="website"
+                                type="url"
+                                maxlength="500"
+                                value="{{ form_values.get('website', '') }}"
+                                placeholder="{{ copy.request_website_placeholder }}"
+                                autocomplete="url"
+                            >
+                        </div>
+
+                        <div class="form-field">
+                            <label for="transaction_type">
+                                {{ copy.request_transaction_label }}
+                            </label>
+
+                            <select
+                                id="transaction_type"
+                                name="transaction_type"
+                            >
+                                <option value="">
+                                    {{ copy.request_transaction_placeholder }}
+                                </option>
+
+                                <option
+                                    value="real_estate"
+                                    {% if form_values.get('transaction_type') == 'real_estate' %}
+                                    selected
+                                    {% endif %}
+                                >
+                                    {{ copy.request_transaction_real_estate }}
+                                </option>
+
+                                <option
+                                    value="supplier_verification"
+                                    {% if form_values.get('transaction_type') == 'supplier_verification' %}
+                                    selected
+                                    {% endif %}
+                                >
+                                    {{ copy.request_transaction_supplier }}
+                                </option>
+
+                                <option
+                                    value="procurement"
+                                    {% if form_values.get('transaction_type') == 'procurement' %}
+                                    selected
+                                    {% endif %}
+                                >
+                                    {{ copy.request_transaction_procurement }}
+                                </option>
+
+                                <option
+                                    value="legal_advisory"
+                                    {% if form_values.get('transaction_type') == 'legal_advisory' %}
+                                    selected
+                                    {% endif %}
+                                >
+                                    {{ copy.request_transaction_legal }}
+                                </option>
+
+                                <option
+                                    value="other"
+                                    {% if form_values.get('transaction_type') == 'other' %}
+                                    selected
+                                    {% endif %}
+                                >
+                                    {{ copy.request_transaction_other }}
+                                </option>
+                            </select>
+                        </div>
+
+                        <div class="form-field">
+                            <label for="additional_context">
+                                {{ copy.request_context_label }}
+                            </label>
+
+                            <textarea
+                                id="additional_context"
+                                name="additional_context"
+                                maxlength="3000"
+                                rows="6"
+                                placeholder="{{ copy.request_context_placeholder }}"
+                            >{{ form_values.get('additional_context', '') }}</textarea>
+                        </div>
+
+                        <div
+                            class="honeypot-field"
+                            aria-hidden="true"
+                        >
+                            <label for="company_website">
+                                Company website
+                            </label>
+
+                            <input
+                                id="company_website"
+                                name="company_website"
+                                type="text"
+                                tabindex="-1"
+                                autocomplete="off"
+                            >
+                        </div>
+
+                        <button
+                            type="submit"
+                            class="button button-primary request-submit"
+                        >
+                            {{ copy.request_submit }}
+                        </button>
+
+                        <p class="privacy-note">
+                            {{ copy.request_privacy }}
+                        </p>
+                    </form>
+                {% endif %}
+            </section>
+        </div>
+    </main>
+
+    <footer class="site-footer">
+        <div class="shell">
+            <p>
+                {{ copy.footer_disclaimer }}
+            </p>
+        </div>
+    </footer>
+</body>
+</html>

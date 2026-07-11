@@ -5,14 +5,12 @@
   "nav_audience": "Für wen",
   "nav_access": "Datenzugang",
   "nav_check": "Unternehmen prüfen",
-
   "hero_kicker": "Grenzüberschreitende Unternehmensprüfung",
   "hero_title": "Prüfen Sie ein ausländisches Unternehmen vor einer wichtigen Transaktion",
   "hero_text": "Sammeln und vergleichen Sie Informationen aus offiziellen Registern, Unternehmenswebsites und öffentlichen Quellen. Erkennen Sie, was bestätigt wurde, wo Abweichungen bestehen und welche Angaben zusätzlich offiziell geprüft werden müssen.",
   "hero_primary_cta": "Unternehmen prüfen",
   "hero_secondary_cta": "So funktioniert die Prüfung",
   "hero_note": "Nachvollziehbare Quellen · Klare Grenzen · Menschliche Prüfung",
-
   "report_title": "Beispiel einer Prüfungsübersicht",
   "report_company": "Example Development GmbH",
   "report_country_label": "Land",
@@ -25,42 +23,61 @@
   "report_website_value": "Zusätzliche Prüfung erforderlich",
   "report_confidence_label": "Prüfungssicherheit",
   "report_confidence_value": "Mittel",
-
   "audience_kicker": "Für wichtige Entscheidungen entwickelt",
   "audience_title": "Für wen der Service gedacht ist",
   "audience_text": "Eine strukturierte Erstprüfung für Personen und Teams, die mit ausländischen Unternehmen arbeiten.",
-
   "audience_real_estate_title": "Immobilieninvestoren",
   "audience_real_estate_text": "Prüfen Sie Bauträger, Immobilienverkäufer, Agenturen und Unternehmen, die an Wohn- oder Gewerbeimmobilientransaktionen beteiligt sind.",
-
   "audience_importers_title": "Importeure",
   "audience_importers_text": "Prüfen Sie ausländische Lieferanten, Hersteller oder Exporteure vor einer Bestellung oder Zahlung.",
-
   "audience_procurement_title": "Einkaufsteams",
   "audience_procurement_text": "Sammeln und vergleichen Sie Unternehmensinformationen, bevor Sie mit einem neuen internationalen Geschäftspartner zusammenarbeiten.",
-
   "audience_legal_title": "Rechtsanwälte und Berater",
   "audience_legal_text": "Strukturieren Sie Registerdaten, öffentliche Quellen und offene Prüfpunkte für eine vorläufige Due-Diligence-Prüfung.",
-
   "access_kicker": "Transparenz als Grundprinzip",
   "access_title": "Wir geben nicht vor, mehr zu wissen als das Register",
   "access_text": "Die veröffentlichten Unternehmensdaten unterscheiden sich je nach Land. Wir zeigen, was geprüft wurde, was gefunden wurde und wo weiterhin eine offizielle Anfrage erforderlich sein kann.",
-
   "level_one_title": "Stufe 1 — Automatisch und sofort",
   "level_one_text": "Verfügbare öffentliche Informationen können Firmenname, Registrierungsnummer, Status, Gründungsdatum, Sitz, Online-Präsenz und Abweichungen zwischen offiziellen und öffentlichen Angaben umfassen.",
-
   "level_two_title": "Stufe 2 — Automatisch, sofern unterstützt",
   "level_two_text": "Der Umfang offizieller Registerdaten ist von Land zu Land unterschiedlich. Einige Staaten veröffentlichen detaillierte Unternehmensdaten, andere nur grundlegende Angaben.",
-
   "level_three_title": "Stufe 3 — Offizielle Anfrage erforderlich",
   "level_three_text": "Amtliche Auszüge, Katasterdaten, Eigentumsunterlagen, eingeschränkt zugängliche Gerichtsakten oder andere Dokumente können eine Gebühr, Identitätsprüfung, einen Rechtsanwalt, einen Notar oder ein offizielles Verfahren erfordern.",
-
   "audit_title": "Sehen Sie, woher jedes Ergebnis stammt",
   "audit_text": "Der Bericht soll Quelle, Abrufdatum, relevante Feststellung, Einschränkungen der Quelle und notwendige Folgeschritte zeigen — statt nur eine nicht erklärte Endbewertung auszugeben.",
-
   "cta_title": "Prüfen Sie das Unternehmen, bevor Sie entscheiden",
   "cta_text": "Beginnen Sie mit einer strukturierten Vorprüfung verfügbarer Unternehmensdaten, offizieller Quellen und öffentlich zugänglicher Informationen.",
   "cta_button": "Unternehmensprüfung starten",
-
-  "footer_disclaimer": "Der Service bietet eine vorläufige Unternehmensprüfung auf Grundlage verfügbarer Registerdaten, offizieller Quellen und öffentlich zugänglicher Informationen. Er ersetzt keine rechtliche, finanzielle, steuerliche, immobilienbezogene oder sonstige professionelle Due-Diligence-Prüfung."
+  "footer_disclaimer": "Der Service bietet eine vorläufige Unternehmensprüfung auf Grundlage verfügbarer Registerdaten, offizieller Quellen und öffentlich zugänglicher Informationen. Er ersetzt keine rechtliche, finanzielle, steuerliche, immobilienbezogene oder sonstige professionelle Due-Diligence-Prüfung.",
+  "request_meta_title": "Unternehmensprüfung anfragen | Company Verification Agent",
+  "request_meta_description": "Reichen Sie ein ausländisches Unternehmen für eine strukturierte vorläufige Prüfung ein.",
+  "request_kicker": "Vorläufige Unternehmensprüfung",
+  "request_title": "Welches Unternehmen möchten Sie prüfen?",
+  "request_intro": "Übermitteln Sie die Unternehmensdaten. Wir prüfen die Anfrage, bevor ein Verifizierungsprozess beginnt.",
+  "request_back": "Zurück zur Übersicht",
+  "request_required_note": "* Pflichtfelder",
+  "request_company_name_label": "Unternehmensname",
+  "request_company_name_placeholder": "Example Development GmbH",
+  "request_country_label": "Land",
+  "request_country_placeholder": "Österreich",
+  "request_email_label": "E-Mail-Adresse",
+  "request_email_placeholder": "name@example.com",
+  "request_website_label": "Website",
+  "request_website_placeholder": "https://example.com",
+  "request_transaction_label": "Transaktions- oder Prüfungsart",
+  "request_transaction_placeholder": "Bitte auswählen",
+  "request_transaction_real_estate": "Immobilientransaktion",
+  "request_transaction_supplier": "Lieferantenprüfung",
+  "request_transaction_procurement": "Einkauf",
+  "request_transaction_legal": "Rechtliche Beratung",
+  "request_transaction_other": "Sonstiges",
+  "request_context_label": "Zusätzlicher Kontext",
+  "request_context_placeholder": "Beschreiben Sie, was geprüft werden soll oder welche Entscheidung Sie vorbereiten.",
+  "request_manual_note": "Mit dem Absenden wird keine automatische Prüfung gestartet. Jede Anfrage wird zuerst geprüft.",
+  "request_privacy": "Wir verwenden Ihre E-Mail-Adresse nur, um Sie zu dieser Prüfungsanfrage zu kontaktieren.",
+  "request_submit": "Anfrage senden",
+  "request_error": "Bitte prüfen Sie die Pflichtfelder und geben Sie eine gültige E-Mail-Adresse ein.",
+  "request_success_title": "Ihre Anfrage wurde empfangen",
+  "request_success_text": "Wir prüfen die Unternehmensdaten und kontaktieren Sie über die angegebene E-Mail-Adresse.",
+  "request_success_back": "Zur Übersicht zurückkehren"
 }

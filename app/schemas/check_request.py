@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from enum import Enum
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 
 class CheckRequestStatus(str, Enum):
@@ -38,12 +38,18 @@ class CheckRequestTransactionType(str, Enum):
 class CheckRequestCreate(BaseModel):
     """Validated data accepted when creating a public check request."""
 
-    company_name: str
-    country: str
-    email: str
-    website: str | None = None
+    company_name: str = Field(max_length=255)
+    country: str = Field(max_length=100)
+    email: str = Field(max_length=320)
+    website: str | None = Field(
+        default=None,
+        max_length=500,
+    )
     transaction_type: CheckRequestTransactionType | None = None
-    additional_context: str | None = None
+    additional_context: str | None = Field(
+        default=None,
+        max_length=3000,
+    )
     preferred_language: CheckRequestLanguage
 
     @field_validator(
@@ -57,6 +63,27 @@ class CheckRequestCreate(BaseModel):
         value = value.strip()
         if not value:
             raise ValueError("value must not be empty")
+        return value
+
+    @field_validator("email")
+    @classmethod
+    def validate_email_format(cls, value: str) -> str:
+        """Apply lightweight email validation."""
+        if (
+            value.count("@") != 1
+            or " " in value
+        ):
+            raise ValueError(
+                "email must be a valid email address"
+            )
+
+        local_part, domain = value.split("@", 1)
+
+        if not local_part or not domain:
+            raise ValueError(
+                "email must be a valid email address"
+            )
+
         return value
 
     @field_validator(
