@@ -9,6 +9,7 @@ from typing import Any
 
 from app.db.database import SessionLocal
 from app.db.models import (
+    CheckRequestRecord,
     CompanyCheckRecord,
     HumanReviewRecord,
     ReportRecord,
@@ -590,5 +591,102 @@ def list_company_checks(limit: int = 20) -> list[dict]:
             .all()
         )
         return [_record_to_dict(record) for record in records]
+    finally:
+        session.close()
+
+
+def _check_request_record_to_dict(
+    record: CheckRequestRecord,
+) -> dict:
+    """Convert one public check request record to a dictionary."""
+    return {
+        "id": record.id,
+        "company_name": record.company_name,
+        "country": record.country,
+        "email": record.email,
+        "website": record.website,
+        "transaction_type": record.transaction_type,
+        "additional_context": record.additional_context,
+        "preferred_language": record.preferred_language,
+        "status": record.status,
+        "company_check_id": record.company_check_id,
+        "created_at": record.created_at or datetime.utcnow(),
+    }
+
+
+def create_check_request_record(
+    request_data: dict,
+) -> dict:
+    """Persist one public request without starting verification."""
+    company_name = str(
+        request_data.get("company_name") or ""
+    ).strip()
+    country = str(
+        request_data.get("country") or ""
+    ).strip()
+    email = str(
+        request_data.get("email") or ""
+    ).strip()
+    preferred_language = _enum_value(
+        request_data.get("preferred_language")
+    )
+
+    if not company_name:
+        raise ValueError("company_name must not be empty")
+    if not country:
+        raise ValueError("country must not be empty")
+    if not email:
+        raise ValueError("email must not be empty")
+    if not preferred_language:
+        raise ValueError(
+            "preferred_language must not be empty"
+        )
+
+    record = CheckRequestRecord(
+        company_name=company_name,
+        country=country,
+        email=email,
+        website=request_data.get("website"),
+        transaction_type=_enum_value(
+            request_data.get("transaction_type")
+        ),
+        additional_context=request_data.get(
+            "additional_context"
+        ),
+        preferred_language=preferred_language,
+        status="pending",
+        company_check_id=None,
+    )
+
+    session = SessionLocal()
+    try:
+        session.add(record)
+        session.commit()
+        session.refresh(record)
+
+        return _check_request_record_to_dict(record)
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+
+def get_check_request_by_id(
+    request_id: int,
+) -> dict | None:
+    """Load one saved public check request."""
+    session = SessionLocal()
+    try:
+        record = (
+            session.query(CheckRequestRecord)
+            .filter(CheckRequestRecord.id == request_id)
+            .first()
+        )
+
+        if record is None:
+            return None
+
+        return _check_request_record_to_dict(record)
     finally:
         session.close()
