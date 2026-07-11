@@ -37,10 +37,35 @@ def test_supported_landing_pages_render(
     assert response.status_code == 200
     assert f'<html lang="{language}">' in response.text
     assert expected_text in response.text
-    assert (
+    request_link = (
         f'href="/{language}/request-check"'
-        in response.text
     )
+
+    assert response.text.count(request_link) == 3
+
+
+@pytest.mark.parametrize("language", ["en", "de", "es"])
+def test_landing_ctas_open_localized_request_form(
+    client,
+    language,
+):
+    response = client.get(
+        f"/{language}/request-check"
+    )
+
+    assert response.status_code == 200
+    assert f'<html lang="{language}">' in response.text
+
+
+@pytest.mark.parametrize("language", ["en", "de", "es"])
+def test_public_landing_does_not_link_to_internal_ui(
+    client,
+    language,
+):
+    response = client.get(f"/{language}")
+
+    assert response.status_code == 200
+    assert 'href="/internal/' not in response.text
 
 
 @pytest.mark.parametrize("language", ["en", "de", "es"])
