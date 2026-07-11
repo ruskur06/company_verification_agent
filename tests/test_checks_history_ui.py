@@ -1,13 +1,11 @@
 import json
 
 import pytest
-from fastapi.testclient import TestClient
 from sqlalchemy.orm import sessionmaker
 
 from app.agents.report_agent import json_path_for_check
 from app.db import database
 from app.db.repositories import save_company_check
-from app.main import app
 from app.schemas.final_risk_review import FinalRiskReviewCreate
 from app.schemas.human_review import ReviewDecision
 from app.schemas.risk import RiskLevel
@@ -40,11 +38,6 @@ def sqlite_db(tmp_path, monkeypatch):
     yield session_factory
 
     database.engine.dispose()
-
-
-@pytest.fixture()
-def client():
-    return TestClient(app)
 
 
 def _write_check_json() -> None:
@@ -140,14 +133,6 @@ def test_checks_page_includes_result_link(sqlite_db, client):
 
     assert response.status_code == 200
     assert f'href="/result/{CHECK_ID}"' in response.text
-
-
-def test_home_page_includes_checks_history_link(sqlite_db, client):
-    response = client.get("/")
-
-    assert response.status_code == 200
-    assert 'href="/checks"' in response.text
-    assert "View checks history" in response.text
 
 
 def test_check_page_includes_checks_history_link(sqlite_db, client):

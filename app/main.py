@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from contextlib import asynccontextmanager
 from pathlib import Path
 from urllib.parse import parse_qs
@@ -23,6 +24,7 @@ BASE_DIR = Path(__file__).resolve().parent
 WEB_DIR = BASE_DIR / "web"
 TEMPLATES_DIR = WEB_DIR / "templates"
 STATIC_DIR = WEB_DIR / "static"
+TRANSLATIONS_DIR = WEB_DIR / "translations"
 
 
 @asynccontextmanager
@@ -49,7 +51,57 @@ app.mount(
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 
-@app.get("/", response_class=HTMLResponse)
+def _load_landing_copy(language: str) -> dict[str, str]:
+    """Load one landing-page translation file."""
+    translation_path = TRANSLATIONS_DIR / f"{language}.json"
+
+    with translation_path.open(encoding="utf-8") as translation_file:
+        copy = json.load(translation_file)
+
+    if not isinstance(copy, dict):
+        raise RuntimeError(
+            f"Landing translation {translation_path} must contain a JSON object."
+        )
+
+    return copy
+
+
+def _render_landing(request: Request, language: str) -> HTMLResponse:
+    """Render the shared landing-page template in one supported language."""
+    return templates.TemplateResponse(
+        request=request,
+        name="landing.html",
+        context={
+            "language": language,
+            "copy": _load_landing_copy(language),
+        },
+    )
+
+
+@app.get("/")
+def landing_root() -> RedirectResponse:
+    """Redirect the root URL to the default English landing page."""
+    return RedirectResponse(url="/en", status_code=307)
+
+
+@app.get("/en", response_class=HTMLResponse)
+def landing_english(request: Request) -> HTMLResponse:
+    """Show the English landing page."""
+    return _render_landing(request, "en")
+
+
+@app.get("/de", response_class=HTMLResponse)
+def landing_german(request: Request) -> HTMLResponse:
+    """Show the German landing page."""
+    return _render_landing(request, "de")
+
+
+@app.get("/es", response_class=HTMLResponse)
+def landing_spanish(request: Request) -> HTMLResponse:
+    """Show the Spanish landing page."""
+    return _render_landing(request, "es")
+
+
 @app.get("/check", response_class=HTMLResponse)
 def index(request: Request) -> HTMLResponse:
     """Show the web form."""

@@ -1,0 +1,66 @@
+{
+  "meta_title": "Company Verification Agent | Preliminary Company Checks",
+  "meta_description": "Review foreign companies using available registry data, official sources and public information.",
+  "brand": "Company Verification Agent",
+  "nav_audience": "Who it is for",
+  "nav_access": "Data access",
+  "nav_check": "Check a company",
+
+  "hero_kicker": "Cross-border company verification",
+  "hero_title": "Verify a foreign company before making an important deal",
+  "hero_text": "Collect and compare information from official registries, company websites and open sources. See what was confirmed, what does not match and what requires additional official verification.",
+  "hero_primary_cta": "Check a company",
+  "hero_secondary_cta": "See how verification works",
+  "hero_note": "Source-linked findings · Clear limitations · Human review",
+
+  "report_title": "Example verification snapshot",
+  "report_company": "Example Development GmbH",
+  "report_country_label": "Country",
+  "report_country_value": "Austria",
+  "report_registry_label": "Registry match",
+  "report_registry_value": "Found",
+  "report_status_label": "Company status",
+  "report_status_value": "Active",
+  "report_website_label": "Website relationship",
+  "report_website_value": "Additional verification required",
+  "report_confidence_label": "Verification confidence",
+  "report_confidence_value": "Medium",
+
+  "audience_kicker": "Built for important decisions",
+  "audience_title": "Who the service is for",
+  "audience_text": "A structured first review for people and teams working with foreign companies.",
+
+  "audience_real_estate_title": "Real estate investors",
+  "audience_real_estate_text": "Review developers, property sellers, agencies and companies involved in residential or commercial property transactions.",
+
+  "audience_importers_title": "Importers",
+  "audience_importers_text": "Review a foreign supplier, manufacturer or exporter before placing an order or making a payment.",
+
+  "audience_procurement_title": "Procurement teams",
+  "audience_procurement_text": "Collect and compare company information before beginning work with a new international counterparty.",
+
+  "audience_legal_title": "Lawyers and advisors",
+  "audience_legal_text": "Organize registry records, public sources and verification gaps for preliminary client due diligence.",
+
+  "access_kicker": "Transparent by design",
+  "access_title": "We do not pretend to know more than the registry",
+  "access_text": "Different countries publish different amounts of company information. We show what was checked, what was found and where an official request may still be required.",
+
+  "level_one_title": "Level 1 — Automatically and immediately",
+  "level_one_text": "Available public information may include company name, registration number, status, registration date, registered address, online presence and differences between official and public data.",
+
+  "level_two_title": "Level 2 — Automatically where supported",
+  "level_two_text": "The depth of official registry information differs by country. Some jurisdictions publish detailed records, while others provide only basic company information.",
+
+  "level_three_title": "Level 3 — Requires an official request",
+  "level_three_text": "Official extracts, cadastral information, property records, restricted court records or other documents may require payment, identity verification, a lawyer, a notary or an official government procedure.",
+
+  "audit_title": "See where every result came from",
+  "audit_text": "The report is designed to show the source, access date, relevant finding, source limitation and required follow-up instead of presenting an unexplained final score.",
+
+  "cta_title": "Check the company before making the decision",
+  "cta_text": "Start with a structured preliminary review of available company records, official sources and public information.",
+  "cta_button": "Start company check",
+
+  "footer_disclaimer": "The service provides preliminary company verification based on available registry data, official sources and publicly accessible information. It does not replace legal, financial, tax, real-estate or professional due diligence."
+}
