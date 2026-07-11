@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="robots" content="noindex, nofollow">
     <title>Company Checks History</title>
     <link rel="stylesheet" href="/static/style.css">
 </head>
@@ -10,7 +11,7 @@
         <section class="card">
             <div class="top-row">
                 <h1>Company Checks History</h1>
-                <a href="/" class="secondary-link">New check</a>
+                <a href="/internal/check" class="secondary-link">New check</a>
             </div>
 
             <p class="muted">
@@ -41,7 +42,7 @@
                                 <td>{{ check.risk_level or "—" }}</td>
                                 <td>{{ check.human_review_status or "pending" }}</td>
                                 <td>{{ check.created_at or "—" }}</td>
-                                <td><a href="/result/{{ check.check_id }}">View result</a></td>
+                                <td><a href="/internal/result/{{ check.check_id }}">View result</a></td>
                             </tr>
                         {% endfor %}
                     </tbody>

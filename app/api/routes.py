@@ -179,7 +179,7 @@ def submit_official_website_review_form(
     except ValueError as exc:
         raise _http_error_from_service(exc) from exc
 
-    return RedirectResponse(url=f"/result/{check_id}", status_code=303)
+    return RedirectResponse(url=f"/internal/result/{check_id}", status_code=303)
 
 
 @router.post(
@@ -234,7 +234,7 @@ def submit_final_risk_review_form(
     except ValueError as exc:
         raise _http_error_from_service(exc) from exc
 
-    return RedirectResponse(url=f"/result/{check_id}", status_code=303)
+    return RedirectResponse(url=f"/internal/result/{check_id}", status_code=303)
 
 
 @router.post("/company-check/{check_id}/human-review", response_model=CompanyCheckResult)

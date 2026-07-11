@@ -15,7 +15,7 @@ from tests.test_json_schema import valid_company_check_data
 
 
 CHECK_ID = "1782245998768"
-RESULT_URL = f"/result/{CHECK_ID}"
+RESULT_URL = f"/internal/result/{CHECK_ID}"
 FORM_URL = f"/company-check/{CHECK_ID}/final-risk-review/form"
 
 

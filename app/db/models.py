@@ -34,6 +34,61 @@ class CompanyCheckRecord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
 
 
+class CheckRequestRecord(Base):
+    """Public request awaiting manual review before verification."""
+
+    __tablename__ = "check_request_records"
+
+    id: Mapped[int] = mapped_column(
+        Integer,
+        primary_key=True,
+        index=True,
+    )
+    company_name: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+    )
+    country: Mapped[str] = mapped_column(
+        String(100),
+        nullable=False,
+    )
+    email: Mapped[str] = mapped_column(
+        String(320),
+        nullable=False,
+    )
+    website: Mapped[Optional[str]] = mapped_column(
+        String(500),
+        nullable=True,
+    )
+    transaction_type: Mapped[Optional[str]] = mapped_column(
+        String(50),
+        nullable=True,
+    )
+    additional_context: Mapped[Optional[str]] = mapped_column(
+        Text,
+        nullable=True,
+    )
+    preferred_language: Mapped[str] = mapped_column(
+        String(10),
+        nullable=False,
+    )
+    status: Mapped[str] = mapped_column(
+        String(20),
+        default="pending",
+        nullable=False,
+    )
+    company_check_id: Mapped[Optional[str]] = mapped_column(
+        String(64),
+        nullable=True,
+        index=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=func.now(),
+        nullable=False,
+    )
+
+
 class ToolCallRecord(Base):
     __tablename__ = "tool_call_records"
 

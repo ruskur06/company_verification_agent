@@ -21,7 +21,7 @@ from tests.test_json_schema import valid_company_check_data
 
 
 CHECK_ID = "1782245998766"
-RESULT_URL = f"/result/{CHECK_ID}"
+RESULT_URL = f"/internal/result/{CHECK_ID}"
 FORM_URL = f"/company-check/{CHECK_ID}/official-website-review/form"
 
 
@@ -209,7 +209,7 @@ def test_result_page_shows_review_form_when_candidate_created_from_provided_doma
     assert response.json_result.website_candidate is not None
     assert response.json_result.website_candidate.is_verified is False
 
-    page = client.get(f"/result/{response.check_id}")
+    page = client.get(f"/internal/result/{response.check_id}")
     assert page.status_code == 200
 
     text = page.text
