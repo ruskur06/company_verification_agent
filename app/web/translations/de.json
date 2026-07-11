@@ -79,5 +79,7 @@
   "request_error": "Bitte prüfen Sie die Pflichtfelder und geben Sie eine gültige E-Mail-Adresse ein.",
   "request_success_title": "Ihre Anfrage wurde empfangen",
   "request_success_text": "Wir prüfen die Unternehmensdaten und kontaktieren Sie über die angegebene E-Mail-Adresse.",
-  "request_success_back": "Zur Übersicht zurückkehren"
+  "request_success_back": "Zur Übersicht zurückkehren",
+  "request_too_large": "Das übermittelte Formular ist zu groß. Bitte kürzen Sie den zusätzlichen Kontext und versuchen Sie es erneut.",
+  "request_rate_limited": "Es wurden zu viele Anfragen gesendet. Bitte warten Sie, bevor Sie es erneut versuchen."
 }

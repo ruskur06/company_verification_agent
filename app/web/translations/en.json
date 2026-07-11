@@ -79,5 +79,7 @@
   "request_error": "Please check the required fields and enter a valid email address.",
   "request_success_title": "Your request has been received",
   "request_success_text": "We will review the company details and contact you using the email address provided.",
-  "request_success_back": "Return to the overview"
+  "request_success_back": "Return to the overview",
+  "request_too_large": "The submitted form is too large. Please shorten the additional context and try again.",
+  "request_rate_limited": "Too many requests have been submitted. Please wait before trying again."
 }

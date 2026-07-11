@@ -21,6 +21,11 @@ from app.api.routes import router
 from app.db.database import init_db
 from app.schemas.check_request import CheckRequestCreate
 from app.services.check_request_service import create_check_request
+from app.services.public_request_guard import (
+    PUBLIC_REQUEST_MAX_BODY_BYTES,
+    PUBLIC_REQUEST_RATE_WINDOW_SECONDS,
+    public_request_rate_limiter,
+)
 from app.services.company_check_service import (
     list_checks_from_db,
     load_company_check,
@@ -106,6 +111,51 @@ def _form_value(
 ) -> str:
     """Read one HTML form value safely."""
     return form_data.get(field_name, [""])[0]
+
+
+async def _read_limited_public_request_body(
+    request: Request,
+) -> bytes | None:
+    """Read a public form body up to the configured limit."""
+    content_length = request.headers.get(
+        "content-length"
+    )
+
+    if content_length is not None:
+        try:
+            declared_size = int(content_length)
+        except ValueError:
+            declared_size = None
+
+        if (
+            declared_size is not None
+            and declared_size
+            > PUBLIC_REQUEST_MAX_BODY_BYTES
+        ):
+            return None
+
+    body = bytearray()
+
+    async for chunk in request.stream():
+        if (
+            len(body) + len(chunk)
+            > PUBLIC_REQUEST_MAX_BODY_BYTES
+        ):
+            return None
+
+        body.extend(chunk)
+
+    return bytes(body)
+
+
+def _public_request_client_key(
+    request: Request,
+) -> str:
+    """Return the direct client address for rate limiting."""
+    if request.client is None:
+        return "unknown"
+
+    return request.client.host
 
 
 def _render_check_request(
@@ -202,10 +252,32 @@ async def submit_check_request_form(
         language
     )
 
-    body = await request.body()
+    copy = _load_landing_copy(language)
+
+    body = await _read_limited_public_request_body(
+        request
+    )
+
+    if body is None:
+        return _render_check_request(
+            request,
+            language,
+            error=copy["request_too_large"],
+            status_code=413,
+        )
+
+    try:
+        decoded_body = body.decode("utf-8")
+    except UnicodeDecodeError:
+        return _render_check_request(
+            request,
+            language,
+            error=copy["request_error"],
+            status_code=422,
+        )
 
     form_data = parse_qs(
-        body.decode("utf-8"),
+        decoded_body,
         keep_blank_values=True,
     )
 
@@ -270,8 +342,6 @@ async def submit_check_request_form(
             preferred_language=language,
         )
     except ValidationError:
-        copy = _load_landing_copy(language)
-
         return _render_check_request(
             request,
             language,
@@ -279,6 +349,27 @@ async def submit_check_request_form(
             error=copy["request_error"],
             status_code=422,
         )
+
+    client_key = _public_request_client_key(
+        request
+    )
+
+    if not public_request_rate_limiter.allow(
+        client_key
+    ):
+        response = _render_check_request(
+            request,
+            language,
+            form_values=form_values,
+            error=copy["request_rate_limited"],
+            status_code=429,
+        )
+
+        response.headers["Retry-After"] = str(
+            PUBLIC_REQUEST_RATE_WINDOW_SECONDS
+        )
+
+        return response
 
     create_check_request(request_data)
 

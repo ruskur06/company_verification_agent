@@ -10,6 +10,22 @@ from app.db.models import (
     CheckRequestRecord,
     CompanyCheckRecord,
 )
+from app.services.public_request_guard import (
+    PUBLIC_REQUEST_MAX_BODY_BYTES,
+    PUBLIC_REQUEST_RATE_LIMIT,
+    PUBLIC_REQUEST_RATE_WINDOW_SECONDS,
+    public_request_rate_limiter,
+)
+
+
+@pytest.fixture(autouse=True)
+def reset_public_request_rate_limiter():
+    """Isolate process-local rate-limit state."""
+    public_request_rate_limiter.clear()
+
+    yield
+
+    public_request_rate_limiter.clear()
 
 
 @pytest.fixture()
@@ -313,3 +329,188 @@ def test_public_form_contains_privacy_notice(
         "you about this verification request."
         in response.text
     )
+
+
+
+def test_oversized_http_body_returns_413_without_persisting(
+    client,
+    sqlite_request_db,
+):
+    response = client.post(
+        "/en/request-check",
+        data={
+            "company_name": "Example Ltd",
+            "country": "United Kingdom",
+            "email": "buyer@example.com",
+            "additional_context": (
+                "X"
+                * (
+                    PUBLIC_REQUEST_MAX_BODY_BYTES
+                    + 1
+                )
+            ),
+        },
+    )
+
+    assert response.status_code == 413
+    assert (
+        "The submitted form is too large."
+        in response.text
+    )
+
+    session = sqlite_request_db()
+
+    try:
+        request_count = (
+            session.query(CheckRequestRecord)
+            .count()
+        )
+    finally:
+        session.close()
+
+    assert request_count == 0
+
+
+def test_rate_limit_rejects_excess_valid_request(
+    client,
+    sqlite_request_db,
+):
+    for index in range(
+        PUBLIC_REQUEST_RATE_LIMIT
+    ):
+        response = client.post(
+            "/en/request-check",
+            data={
+                "company_name": (
+                    f"Example Company {index}"
+                ),
+                "country": "United Kingdom",
+                "email": (
+                    f"buyer{index}@example.com"
+                ),
+            },
+        )
+
+        assert response.status_code == 200
+
+    blocked_response = client.post(
+        "/en/request-check",
+        data={
+            "company_name": "Blocked Company",
+            "country": "United Kingdom",
+            "email": "blocked@example.com",
+        },
+    )
+
+    assert blocked_response.status_code == 429
+    assert (
+        "Too many requests have been submitted."
+        in blocked_response.text
+    )
+    assert blocked_response.headers[
+        "Retry-After"
+    ] == str(
+        PUBLIC_REQUEST_RATE_WINDOW_SECONDS
+    )
+
+    session = sqlite_request_db()
+
+    try:
+        request_count = (
+            session.query(CheckRequestRecord)
+            .count()
+        )
+    finally:
+        session.close()
+
+    assert (
+        request_count
+        == PUBLIC_REQUEST_RATE_LIMIT
+    )
+
+
+def test_invalid_requests_do_not_consume_rate_limit(
+    client,
+    sqlite_request_db,
+):
+    for _ in range(
+        PUBLIC_REQUEST_RATE_LIMIT + 2
+    ):
+        invalid_response = client.post(
+            "/en/request-check",
+            data={
+                "company_name": "",
+                "country": "",
+                "email": "invalid-email",
+            },
+        )
+
+        assert invalid_response.status_code == 422
+
+    valid_response = client.post(
+        "/en/request-check",
+        data={
+            "company_name": "Valid Company",
+            "country": "Austria",
+            "email": "buyer@example.com",
+        },
+    )
+
+    assert valid_response.status_code == 200
+
+    session = sqlite_request_db()
+
+    try:
+        request_count = (
+            session.query(CheckRequestRecord)
+            .count()
+        )
+    finally:
+        session.close()
+
+    assert request_count == 1
+
+
+def test_honeypot_requests_do_not_consume_rate_limit(
+    client,
+    sqlite_request_db,
+):
+    for _ in range(
+        PUBLIC_REQUEST_RATE_LIMIT + 2
+    ):
+        honeypot_response = client.post(
+            "/en/request-check",
+            data={
+                "company_name": "",
+                "country": "",
+                "email": "",
+                "company_website": (
+                    "https://spam.example"
+                ),
+            },
+        )
+
+        assert honeypot_response.status_code == 200
+
+    valid_response = client.post(
+        "/en/request-check",
+        data={
+            "company_name": "Human Company",
+            "country": "Germany",
+            "email": "human@example.com",
+        },
+    )
+
+    assert valid_response.status_code == 200
+
+    session = sqlite_request_db()
+
+    try:
+        request_count = (
+            session.query(CheckRequestRecord)
+            .count()
+        )
+    finally:
+        session.close()
+
+    assert request_count == 1

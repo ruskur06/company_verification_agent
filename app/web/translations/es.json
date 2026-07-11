@@ -79,5 +79,7 @@
   "request_error": "Revise los campos obligatorios e introduzca una dirección de correo válida.",
   "request_success_title": "Hemos recibido su solicitud",
   "request_success_text": "Revisaremos los datos de la empresa y contactaremos con usted mediante el correo electrónico indicado.",
-  "request_success_back": "Volver al resumen"
+  "request_success_back": "Volver al resumen",
+  "request_too_large": "El formulario enviado es demasiado grande. Reduzca el contexto adicional y vuelva a intentarlo.",
+  "request_rate_limited": "Se han enviado demasiadas solicitudes. Espere antes de volver a intentarlo."
 }
