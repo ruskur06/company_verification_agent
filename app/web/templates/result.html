@@ -3,6 +3,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="robots" content="noindex, nofollow">
     <title>Company Check Result</title>
     <link rel="stylesheet" href="/static/style.css">
 </head>
@@ -11,10 +12,9 @@
         <section class="card">
             <div class="top-row">
                 <h1>Company Check Result</h1>
-                <a href="/check" class="secondary-link">New check</a>
+                <a href="/internal/check" class="secondary-link">New check</a>
             </div>
 
-```
         {% if result is none %}
             <div class="alert">
                 Check {{ check_id }} was not found.
@@ -775,7 +775,6 @@
         {% endif %}
     </section>
 </main>
-```
 
 </body>
 </html>

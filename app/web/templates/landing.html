@@ -25,7 +25,7 @@
             <nav class="main-nav" aria-label="Primary navigation">
                 <a href="#audience">{{ copy.nav_audience }}</a>
                 <a href="#data-access">{{ copy.nav_access }}</a>
-                <a href="/check" class="nav-cta">{{ copy.nav_check }}</a>
+                <a href="/{{ language }}/request-check" class="nav-cta">{{ copy.nav_check }}</a>
             </nav>
 
             <nav class="language-switcher" aria-label="Language selector">
@@ -45,7 +45,7 @@
                     <p class="hero-text">{{ copy.hero_text }}</p>
 
                     <div class="hero-actions">
-                        <a href="/check" class="button button-primary">
+                        <a href="/{{ language }}/request-check" class="button button-primary">
                             {{ copy.hero_primary_cta }}
                         </a>
 
@@ -165,7 +165,7 @@
                     <p>{{ copy.cta_text }}</p>
                 </div>
 
-                <a href="/check" class="button button-primary">
+                <a href="/{{ language }}/request-check" class="button button-primary">
                     {{ copy.cta_button }}
                 </a>
             </div>

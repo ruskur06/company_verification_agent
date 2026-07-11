@@ -37,7 +37,10 @@ def test_supported_landing_pages_render(
     assert response.status_code == 200
     assert f'<html lang="{language}">' in response.text
     assert expected_text in response.text
-    assert 'href="/check"' in response.text
+    assert (
+        f'href="/{language}/request-check"'
+        in response.text
+    )
 
 
 @pytest.mark.parametrize("language", ["en", "de", "es"])
@@ -92,3 +95,79 @@ def test_internal_registry_statuses_are_not_exposed(client, language):
     assert "candidates_found" not in response.text
     assert "no_candidates" not in response.text
     assert "configuration_error" not in response.text
+
+
+@pytest.mark.parametrize(
+    "old_path",
+    [
+        "/check",
+        "/checks",
+        "/result/1782245998769",
+    ],
+)
+def test_old_internal_ui_routes_are_not_available(
+    client,
+    old_path,
+):
+    response = client.get(
+        old_path,
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 404
+
+
+def test_robots_disallows_internal_routes(client):
+    response = client.get("/robots.txt")
+
+    assert response.status_code == 200
+    assert "User-agent: *" in response.text
+    assert "Disallow: /internal/" in response.text
+
+
+@pytest.mark.parametrize(
+    "template_name",
+    [
+        "index.html",
+        "checks.html",
+        "result.html",
+    ],
+)
+def test_internal_templates_are_not_indexable(
+    template_name,
+):
+    templates_dir = (
+        Path(__file__).resolve().parents[1]
+        / "app"
+        / "web"
+        / "templates"
+    )
+
+    html = (
+        templates_dir
+        / template_name
+    ).read_text(encoding="utf-8")
+
+    assert (
+        '<meta name="robots" '
+        'content="noindex, nofollow">'
+    ) in html
+
+
+@pytest.mark.parametrize(
+    "language",
+    [
+        "en",
+        "de",
+        "es",
+    ],
+)
+def test_public_landing_does_not_link_to_internal_ui(
+    client,
+    language,
+):
+    response = client.get(f"/{language}")
+
+    assert response.status_code == 200
+    assert 'href="/internal/' not in response.text
+    assert 'href="/check"' not in response.text

@@ -8,7 +8,11 @@ from pathlib import Path
 from urllib.parse import parse_qs
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import (
+    HTMLResponse,
+    PlainTextResponse,
+    RedirectResponse,
+)
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -84,6 +88,19 @@ def landing_root() -> RedirectResponse:
     return RedirectResponse(url="/en", status_code=307)
 
 
+@app.get(
+    "/robots.txt",
+    response_class=PlainTextResponse,
+    include_in_schema=False,
+)
+def robots_txt() -> PlainTextResponse:
+    """Tell search engines not to index the internal web interface."""
+    return PlainTextResponse(
+        "User-agent: *\n"
+        "Disallow: /internal/\n"
+    )
+
+
 @app.get("/en", response_class=HTMLResponse)
 def landing_english(request: Request) -> HTMLResponse:
     """Show the English landing page."""
@@ -102,7 +119,7 @@ def landing_spanish(request: Request) -> HTMLResponse:
     return _render_landing(request, "es")
 
 
-@app.get("/check", response_class=HTMLResponse)
+@app.get("/internal/check", response_class=HTMLResponse)
 def index(request: Request) -> HTMLResponse:
     """Show the web form."""
     return templates.TemplateResponse(
@@ -112,7 +129,7 @@ def index(request: Request) -> HTMLResponse:
     )
 
 
-@app.post("/run-check")
+@app.post("/internal/run-check")
 async def run_check_from_form(request: Request) -> RedirectResponse:
     """Run company check from HTML form.
 
@@ -126,7 +143,7 @@ async def run_check_from_form(request: Request) -> RedirectResponse:
     domain = form_data.get("domain", [""])[0].strip() or None
 
     if not company_name or not country:
-        return RedirectResponse(url="/check?error=missing_input", status_code=303)
+        return RedirectResponse(url="/internal/check?error=missing_input", status_code=303)
 
     response = run_company_check(
         company_name=company_name,
@@ -135,12 +152,12 @@ async def run_check_from_form(request: Request) -> RedirectResponse:
     )
 
     return RedirectResponse(
-        url=f"/result/{response.check_id}",
+        url=f"/internal/result/{response.check_id}",
         status_code=303,
     )
 
 
-@app.get("/checks", response_class=HTMLResponse)
+@app.get("/internal/checks", response_class=HTMLResponse)
 def checks_history(request: Request) -> HTMLResponse:
     """Show read-only history of saved company checks from the database."""
     checks = list_checks_from_db(limit=50)
@@ -152,7 +169,7 @@ def checks_history(request: Request) -> HTMLResponse:
     )
 
 
-@app.get("/result/{check_id}", response_class=HTMLResponse)
+@app.get("/internal/result/{check_id}", response_class=HTMLResponse)
 def show_result(request: Request, check_id: int) -> HTMLResponse:
     """Show company check result page."""
     result = load_company_check(check_id)

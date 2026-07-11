@@ -57,14 +57,14 @@ def _persist_check() -> None:
 
 
 def test_checks_page_returns_200(sqlite_db, client):
-    response = client.get("/checks")
+    response = client.get("/internal/checks")
 
     assert response.status_code == 200
     assert "Company Checks History" in response.text
 
 
 def test_checks_page_empty_db_shows_message(sqlite_db, client):
-    response = client.get("/checks")
+    response = client.get("/internal/checks")
 
     assert response.status_code == 200
     assert "No company checks found." in response.text
@@ -73,7 +73,7 @@ def test_checks_page_empty_db_shows_message(sqlite_db, client):
 def test_checks_page_lists_saved_check(sqlite_db, client):
     _persist_check()
 
-    response = client.get("/checks")
+    response = client.get("/internal/checks")
     text = response.text
 
     assert response.status_code == 200
@@ -85,7 +85,7 @@ def test_checks_page_lists_saved_check(sqlite_db, client):
 def test_checks_page_shows_preliminary_risk_fields(sqlite_db, client):
     _persist_check()
 
-    response = client.get("/checks")
+    response = client.get("/internal/checks")
     text = response.text
 
     assert "Preliminary score" in text
@@ -107,7 +107,7 @@ def test_checks_page_shows_edited_human_review_status_after_final_risk_review(sq
         ),
     )
 
-    response = client.get("/checks")
+    response = client.get("/internal/checks")
     text = response.text
 
     assert response.status_code == 200
@@ -119,7 +119,7 @@ def test_checks_page_shows_edited_human_review_status_after_final_risk_review(sq
 def test_checks_page_shows_human_review_status(sqlite_db, client):
     _persist_check()
 
-    response = client.get("/checks")
+    response = client.get("/internal/checks")
 
     assert response.status_code == 200
     assert "Human review" in response.text
@@ -129,15 +129,15 @@ def test_checks_page_shows_human_review_status(sqlite_db, client):
 def test_checks_page_includes_result_link(sqlite_db, client):
     _persist_check()
 
-    response = client.get("/checks")
+    response = client.get("/internal/checks")
 
     assert response.status_code == 200
-    assert f'href="/result/{CHECK_ID}"' in response.text
+    assert f'href="/internal/result/{CHECK_ID}"' in response.text
 
 
 def test_check_page_includes_checks_history_link(sqlite_db, client):
-    response = client.get("/check")
+    response = client.get("/internal/check")
 
     assert response.status_code == 200
-    assert 'href="/checks"' in response.text
+    assert 'href="/internal/checks"' in response.text
     assert "View checks history" in response.text
