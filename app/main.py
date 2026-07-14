@@ -22,6 +22,7 @@ from app.db.database import init_db
 from app.schemas.check_request import CheckRequestCreate
 from app.services.check_request_service import (
     create_check_request,
+    get_check_request,
     list_check_requests,
 )
 from app.services.public_request_guard import (
@@ -442,6 +443,26 @@ def check_requests_list(request: Request) -> HTMLResponse:
         request=request,
         name="check_requests.html",
         context={"requests": check_requests},
+    )
+
+
+@app.get(
+    "/internal/requests/{request_id}",
+    response_class=HTMLResponse,
+)
+def check_request_detail(
+    request: Request,
+    request_id: int,
+) -> HTMLResponse:
+    """Show one public check request in read-only detail view."""
+    check_request = get_check_request(request_id)
+    if check_request is None:
+        raise HTTPException(status_code=404)
+
+    return templates.TemplateResponse(
+        request=request,
+        name="check_request_detail.html",
+        context={"check_request": check_request},
     )
 
 

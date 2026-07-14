@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="robots" content="noindex, nofollow">
+    <title>Check Request {{ check_request.id }}</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <main class="container">
+        <section class="card">
+            <div class="top-row">
+                <h1>Check Request Detail</h1>
+                <a href="/internal/requests" class="secondary-link">Back to requests</a>
+            </div>
+
+            <p class="muted">
+                Read-only view of one public check request. No verification is
+                started from this page.
+            </p>
+
+            <div class="summary-grid">
+                <div>
+                    <span class="label">Request ID</span>
+                    <strong>{{ check_request.id }}</strong>
+                </div>
+
+                <div>
+                    <span class="label">Company</span>
+                    <strong>{{ check_request.company_name }}</strong>
+                </div>
+
+                <div>
+                    <span class="label">Country</span>
+                    <strong>{{ check_request.country }}</strong>
+                </div>
+
+                <div>
+                    <span class="label">Email</span>
+                    <strong>{{ check_request.email }}</strong>
+                </div>
+
+                <div>
+                    <span class="label">Website</span>
+                    <strong>{{ check_request.website or "—" }}</strong>
+                </div>
+
+                <div>
+                    <span class="label">Transaction type</span>
+                    <strong>{{ check_request.transaction_type.value if check_request.transaction_type else "—" }}</strong>
+                </div>
+
+                <div>
+                    <span class="label">Preferred language</span>
+                    <strong>{{ check_request.preferred_language.value }}</strong>
+                </div>
+
+                <div>
+                    <span class="label">Status</span>
+                    <strong>{{ check_request.status.value }}</strong>
+                </div>
+
+                <div>
+                    <span class="label">Created at</span>
+                    <strong>{{ check_request.created_at }}</strong>
+                </div>
+
+                <div>
+                    <span class="label">Company check ID</span>
+                    <strong>
+                        {% if check_request.company_check_id %}
+                            <a href="/internal/result/{{ check_request.company_check_id }}">
+                                {{ check_request.company_check_id }}
+                            </a>
+                        {% else %}
+                            No verification run yet
+                        {% endif %}
+                    </strong>
+                </div>
+            </div>
+
+            <section class="section">
+                <h2>Additional context</h2>
+                <p>
+                    {{ check_request.additional_context or "—" }}
+                </p>
+            </section>
+
+            <div class="links">
+                <a href="/internal/requests">Back to check requests</a>
+                <a href="/internal/checks">View checks history</a>
+            </div>
+        </section>
+    </main>
+</body>
+</html>
