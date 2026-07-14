@@ -690,3 +690,24 @@ def get_check_request_by_id(
         return _check_request_record_to_dict(record)
     finally:
         session.close()
+
+
+def list_check_requests(limit: int = 50) -> list[dict]:
+    """List recent public check requests, newest first."""
+    session = SessionLocal()
+    try:
+        records = (
+            session.query(CheckRequestRecord)
+            .order_by(
+                CheckRequestRecord.created_at.desc(),
+                CheckRequestRecord.id.desc(),
+            )
+            .limit(limit)
+            .all()
+        )
+        return [
+            _check_request_record_to_dict(record)
+            for record in records
+        ]
+    finally:
+        session.close()

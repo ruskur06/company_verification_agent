@@ -5,6 +5,7 @@ from __future__ import annotations
 from app.db.repositories import (
     create_check_request_record,
     get_check_request_by_id,
+    list_check_requests as list_check_request_records,
 )
 from app.schemas.check_request import (
     CheckRequestCreate,
@@ -33,3 +34,14 @@ def get_check_request(
         return None
 
     return CheckRequestResponse.model_validate(saved)
+
+
+def list_check_requests(
+    limit: int = 50,
+) -> list[CheckRequestResponse]:
+    """List recent public check requests for internal review."""
+    records = list_check_request_records(limit=limit)
+    return [
+        CheckRequestResponse.model_validate(record)
+        for record in records
+    ]

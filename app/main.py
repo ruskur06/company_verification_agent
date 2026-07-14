@@ -20,7 +20,10 @@ from pydantic import ValidationError
 from app.api.routes import router
 from app.db.database import init_db
 from app.schemas.check_request import CheckRequestCreate
-from app.services.check_request_service import create_check_request
+from app.services.check_request_service import (
+    create_check_request,
+    list_check_requests,
+)
 from app.services.public_request_guard import (
     PUBLIC_REQUEST_MAX_BODY_BYTES,
     PUBLIC_REQUEST_RATE_WINDOW_SECONDS,
@@ -427,6 +430,18 @@ def checks_history(request: Request) -> HTMLResponse:
         request=request,
         name="checks.html",
         context={"checks": checks},
+    )
+
+
+@app.get("/internal/requests", response_class=HTMLResponse)
+def check_requests_list(request: Request) -> HTMLResponse:
+    """Show read-only list of public check requests."""
+    check_requests = list_check_requests(limit=50)
+
+    return templates.TemplateResponse(
+        request=request,
+        name="check_requests.html",
+        context={"requests": check_requests},
     )
 
 

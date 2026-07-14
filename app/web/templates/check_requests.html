@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="robots" content="noindex, nofollow">
+    <title>Check Requests</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <main class="container">
+        <section class="card">
+            <div class="top-row">
+                <h1>Check Requests</h1>
+                <a href="/internal/check" class="secondary-link">New check</a>
+            </div>
+
+            <p class="muted">
+                Read-only list of public check requests. Requests are not
+                started automatically.
+            </p>
+
+            {% if requests %}
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Request ID</th>
+                            <th>Company</th>
+                            <th>Country</th>
+                            <th>Email</th>
+                            <th>Language</th>
+                            <th>Transaction type</th>
+                            <th>Created at</th>
+                            <th>Status</th>
+                            <th>Detail</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in requests %}
+                            <tr>
+                                <td>{{ item.id }}</td>
+                                <td>{{ item.company_name }}</td>
+                                <td>{{ item.country }}</td>
+                                <td>{{ item.email }}</td>
+                                <td>{{ item.preferred_language.value }}</td>
+                                <td>{{ item.transaction_type.value if item.transaction_type else "—" }}</td>
+                                <td>{{ item.created_at }}</td>
+                                <td>{{ item.status.value }}</td>
+                                <td>
+                                    <a href="/internal/requests/{{ item.id }}">
+                                        View request
+                                    </a>
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            {% else %}
+                <p class="muted">No check requests found.</p>
+            {% endif %}
+
+            <div class="links">
+                <a href="/internal/checks">View checks history</a>
+            </div>
+        </section>
+    </main>
+</body>
+</html>
