@@ -21,9 +21,13 @@ from app.api.routes import router
 from app.db.database import init_db
 from app.schemas.check_request import CheckRequestCreate
 from app.services.check_request_service import (
+    CheckRequestNotFoundError,
+    InvalidCheckRequestTransitionError,
+    approve_check_request,
     create_check_request,
     get_check_request,
     list_check_requests,
+    reject_check_request,
 )
 from app.services.public_request_guard import (
     PUBLIC_REQUEST_MAX_BODY_BYTES,
@@ -459,10 +463,61 @@ def check_request_detail(
     if check_request is None:
         raise HTTPException(status_code=404)
 
+    invalid_transition = (
+        request.query_params.get("error") == "invalid_transition"
+    )
+
     return templates.TemplateResponse(
         request=request,
         name="check_request_detail.html",
-        context={"check_request": check_request},
+        context={
+            "check_request": check_request,
+            "invalid_transition": invalid_transition,
+        },
+    )
+
+
+@app.post("/internal/requests/{request_id}/approve")
+def approve_check_request_action(request_id: int) -> RedirectResponse:
+    """Approve one pending public check request."""
+    try:
+        approve_check_request(request_id)
+    except CheckRequestNotFoundError as exc:
+        raise HTTPException(status_code=404) from exc
+    except InvalidCheckRequestTransitionError:
+        return RedirectResponse(
+            url=(
+                f"/internal/requests/{request_id}"
+                "?error=invalid_transition"
+            ),
+            status_code=303,
+        )
+
+    return RedirectResponse(
+        url=f"/internal/requests/{request_id}",
+        status_code=303,
+    )
+
+
+@app.post("/internal/requests/{request_id}/reject")
+def reject_check_request_action(request_id: int) -> RedirectResponse:
+    """Reject one pending public check request."""
+    try:
+        reject_check_request(request_id)
+    except CheckRequestNotFoundError as exc:
+        raise HTTPException(status_code=404) from exc
+    except InvalidCheckRequestTransitionError:
+        return RedirectResponse(
+            url=(
+                f"/internal/requests/{request_id}"
+                "?error=invalid_transition"
+            ),
+            status_code=303,
+        )
+
+    return RedirectResponse(
+        url=f"/internal/requests/{request_id}",
+        status_code=303,
     )
 
 

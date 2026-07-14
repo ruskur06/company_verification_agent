@@ -711,3 +711,46 @@ def list_check_requests(limit: int = 50) -> list[dict]:
         ]
     finally:
         session.close()
+
+
+def update_check_request_status(
+    request_id: int,
+    *,
+    expected_status: str,
+    new_status: str,
+) -> dict | None:
+    """Conditionally update one request status and return the new record."""
+    session = SessionLocal()
+    try:
+        updated_rows = (
+            session.query(CheckRequestRecord)
+            .filter(
+                CheckRequestRecord.id == request_id,
+                CheckRequestRecord.status == expected_status,
+            )
+            .update(
+                {"status": new_status},
+                synchronize_session=False,
+            )
+        )
+
+        if updated_rows == 0:
+            session.rollback()
+            return None
+
+        session.commit()
+
+        record = (
+            session.query(CheckRequestRecord)
+            .filter(CheckRequestRecord.id == request_id)
+            .first()
+        )
+        if record is None:
+            return None
+
+        return _check_request_record_to_dict(record)
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()

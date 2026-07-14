@@ -15,9 +15,15 @@
             </div>
 
             <p class="muted">
-                Read-only view of one public check request. No verification is
-                started from this page.
+                Operator view of one public check request. Verification is not
+                started automatically from this page.
             </p>
+
+            {% if invalid_transition %}
+                <div class="alert">
+                    This request is no longer pending and cannot be updated.
+                </div>
+            {% endif %}
 
             <div class="summary-grid">
                 <div>
@@ -85,6 +91,26 @@
                     {{ check_request.additional_context or "—" }}
                 </p>
             </section>
+
+            {% if check_request.status.value == "pending" %}
+                <section class="section">
+                    <h2>Operator actions</h2>
+                    <form
+                        action="/internal/requests/{{ check_request.id }}/approve"
+                        method="post"
+                        class="form"
+                    >
+                        <button type="submit">Approve request</button>
+                    </form>
+                    <form
+                        action="/internal/requests/{{ check_request.id }}/reject"
+                        method="post"
+                        class="form"
+                    >
+                        <button type="submit">Reject request</button>
+                    </form>
+                </section>
+            {% endif %}
 
             <div class="links">
                 <a href="/internal/requests">Back to check requests</a>

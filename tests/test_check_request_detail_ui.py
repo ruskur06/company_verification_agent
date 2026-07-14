@@ -294,19 +294,35 @@ def test_check_request_detail_escapes_unsafe_html(
     assert "onerror" in text
 
 
-def test_check_request_detail_is_read_only(sqlite_db, client):
+def test_check_request_detail_is_read_only_after_decision(sqlite_db, client):
     saved = _create_full_request()
+
+    session = sqlite_db()
+    try:
+        record = (
+            session.query(CheckRequestRecord)
+            .filter(CheckRequestRecord.id == saved.id)
+            .one()
+        )
+        record.status = "approved"
+        session.commit()
+    finally:
+        session.close()
 
     response = client.get(f"/internal/requests/{saved.id}")
     text = response.text.lower()
 
     assert response.status_code == 200
-    assert 'method="post"' not in text
-    assert ">approve<" not in text
-    assert ">reject<" not in text
+    assert (
+        f'action="/internal/requests/{saved.id}/approve"'
+        not in response.text
+    )
+    assert (
+        f'action="/internal/requests/{saved.id}/reject"'
+        not in response.text
+    )
     assert "run check" not in text
-    assert "approve request" not in text
-    assert "reject request" not in text
+    assert 'action="/internal/run-check"' not in text
 
 
 def test_check_request_detail_does_not_call_pipeline(
