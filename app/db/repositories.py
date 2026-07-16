@@ -690,3 +690,67 @@ def get_check_request_by_id(
         return _check_request_record_to_dict(record)
     finally:
         session.close()
+
+
+def list_check_requests(limit: int = 50) -> list[dict]:
+    """List recent public check requests, newest first."""
+    session = SessionLocal()
+    try:
+        records = (
+            session.query(CheckRequestRecord)
+            .order_by(
+                CheckRequestRecord.created_at.desc(),
+                CheckRequestRecord.id.desc(),
+            )
+            .limit(limit)
+            .all()
+        )
+        return [
+            _check_request_record_to_dict(record)
+            for record in records
+        ]
+    finally:
+        session.close()
+
+
+def update_check_request_status(
+    request_id: int,
+    *,
+    expected_status: str,
+    new_status: str,
+) -> dict | None:
+    """Conditionally update one request status and return the new record."""
+    session = SessionLocal()
+    try:
+        updated_rows = (
+            session.query(CheckRequestRecord)
+            .filter(
+                CheckRequestRecord.id == request_id,
+                CheckRequestRecord.status == expected_status,
+            )
+            .update(
+                {"status": new_status},
+                synchronize_session=False,
+            )
+        )
+
+        if updated_rows == 0:
+            session.rollback()
+            return None
+
+        session.commit()
+
+        record = (
+            session.query(CheckRequestRecord)
+            .filter(CheckRequestRecord.id == request_id)
+            .first()
+        )
+        if record is None:
+            return None
+
+        return _check_request_record_to_dict(record)
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
