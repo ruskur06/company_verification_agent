@@ -5,7 +5,16 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import Boolean, DateTime, Float, Integer, String, Text, func
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    Float,
+    Index,
+    Integer,
+    String,
+    Text,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.database import Base
@@ -13,9 +22,20 @@ from app.db.database import Base
 
 class CompanyCheckRecord(Base):
     __tablename__ = "company_check_records"
+    __table_args__ = (
+        Index(
+            "ux_company_check_records_source_check_request_id",
+            "source_check_request_id",
+            unique=True,
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     check_id: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    source_check_request_id: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        nullable=True,
+    )
     company_name: Mapped[str] = mapped_column(String(255), nullable=False)
     country: Mapped[str] = mapped_column(String(100), nullable=False)
     domain: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
@@ -38,6 +58,13 @@ class CheckRequestRecord(Base):
     """Public request awaiting manual review before verification."""
 
     __tablename__ = "check_request_records"
+    __table_args__ = (
+        Index(
+            "ux_check_request_records_processing_check_id",
+            "processing_check_id",
+            unique=True,
+        ),
+    )
 
     id: Mapped[int] = mapped_column(
         Integer,
@@ -81,6 +108,14 @@ class CheckRequestRecord(Base):
         String(64),
         nullable=True,
         index=True,
+    )
+    processing_started_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime,
+        nullable=True,
+    )
+    processing_check_id: Mapped[Optional[str]] = mapped_column(
+        String(64),
+        nullable=True,
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime,

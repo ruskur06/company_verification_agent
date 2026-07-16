@@ -162,6 +162,182 @@ def _ensure_official_website_review_columns() -> None:
             connection.execute(text(statement))
 
 
+def _ensure_approved_request_pipeline_columns() -> None:
+    """Add approved-request pipeline columns to existing tables."""
+    inspector = inspect(engine)
+    table_names = set(inspector.get_table_names())
+    dialect_name = engine.dialect.name
+    statements: list[str] = []
+
+    def _append_column_statement(
+        table_name: str,
+        column_name: str,
+        column_type: str,
+        existing_columns: set[str],
+    ) -> None:
+        if column_name in existing_columns:
+            return
+        if dialect_name == "postgresql":
+            statements.append(
+                f"ALTER TABLE {table_name} "
+                f"ADD COLUMN IF NOT EXISTS {column_name} {column_type}"
+            )
+        else:
+            statements.append(
+                f"ALTER TABLE {table_name} "
+                f"ADD COLUMN {column_name} {column_type}"
+            )
+
+    if "check_request_records" in table_names:
+        request_columns = {
+            column["name"]
+            for column in inspector.get_columns("check_request_records")
+        }
+        _append_column_statement(
+            "check_request_records",
+            "processing_started_at",
+            "TIMESTAMP",
+            request_columns,
+        )
+        _append_column_statement(
+            "check_request_records",
+            "processing_check_id",
+            "VARCHAR(64)",
+            request_columns,
+        )
+
+    if "company_check_records" in table_names:
+        check_columns = {
+            column["name"]
+            for column in inspector.get_columns("company_check_records")
+        }
+        _append_column_statement(
+            "company_check_records",
+            "source_check_request_id",
+            "INTEGER",
+            check_columns,
+        )
+
+    if not statements:
+        return
+
+    with engine.begin() as connection:
+        for statement in statements:
+            connection.execute(text(statement))
+
+
+def _validate_unique_single_column_index(
+    *,
+    table_name: str,
+    index_name: str,
+    expected_column: str,
+    existing_indexes: list[dict],
+) -> bool:
+    """Return True when the named unique index already exists correctly."""
+    matching = [
+        index for index in existing_indexes if index.get("name") == index_name
+    ]
+    if not matching:
+        return False
+
+    index_info = matching[0]
+    column_names = list(index_info.get("column_names") or [])
+    if not index_info.get("unique"):
+        raise RuntimeError(
+            f"Schema invariant failed: index {index_name} on "
+            f"{table_name} must be unique"
+        )
+    if column_names != [expected_column]:
+        raise RuntimeError(
+            f"Schema invariant failed: index {index_name} on "
+            f"{table_name} must cover exactly [{expected_column}], "
+            f"found {column_names}"
+        )
+    return True
+
+
+def _require_unique_single_column_index(
+    *,
+    table_name: str,
+    index_name: str,
+    expected_column: str,
+    existing_indexes: list[dict],
+) -> None:
+    """Raise when the named unique index is missing or malformed."""
+    if not _validate_unique_single_column_index(
+        table_name=table_name,
+        index_name=index_name,
+        expected_column=expected_column,
+        existing_indexes=existing_indexes,
+    ):
+        raise RuntimeError(
+            f"Schema invariant failed: index {index_name} on "
+            f"{table_name} was expected after bootstrap"
+        )
+
+
+def _ensure_approved_request_pipeline_indexes() -> None:
+    """Create unique nullable indexes required by the approved-request pipeline."""
+    inspector = inspect(engine)
+    table_names = set(inspector.get_table_names())
+    statements: list[str] = []
+    required_indexes = (
+        (
+            "check_request_records",
+            "ux_check_request_records_processing_check_id",
+            "processing_check_id",
+        ),
+        (
+            "company_check_records",
+            "ux_company_check_records_source_check_request_id",
+            "source_check_request_id",
+        ),
+    )
+    tables_needing_indexes: list[tuple[str, str, str]] = []
+
+    for table_name, index_name, column_name in required_indexes:
+        if table_name not in table_names:
+            continue
+
+        existing_columns = {
+            column["name"] for column in inspector.get_columns(table_name)
+        }
+        if column_name not in existing_columns:
+            raise RuntimeError(
+                f"Schema invariant failed: column {table_name}.{column_name} "
+                f"must exist before creating index {index_name}"
+            )
+
+        existing_indexes = inspector.get_indexes(table_name)
+        if _validate_unique_single_column_index(
+            table_name=table_name,
+            index_name=index_name,
+            expected_column=column_name,
+            existing_indexes=existing_indexes,
+        ):
+            continue
+
+        tables_needing_indexes.append((table_name, index_name, column_name))
+        statements.append(
+            f"CREATE UNIQUE INDEX IF NOT EXISTS {index_name} "
+            f"ON {table_name} ({column_name})"
+        )
+
+    if statements:
+        with engine.begin() as connection:
+            for statement in statements:
+                connection.execute(text(statement))
+
+        post_inspector = inspect(engine)
+        for table_name, index_name, column_name in tables_needing_indexes:
+            _require_unique_single_column_index(
+                table_name=table_name,
+                index_name=index_name,
+                expected_column=column_name,
+                existing_indexes=post_inspector.get_indexes(table_name),
+            )
+
+
 def init_db() -> None:
     """Create all tables. Called on startup."""
     from app.db import models  # noqa: F401
@@ -170,3 +346,5 @@ def init_db() -> None:
     _ensure_company_check_lock_column()
     _ensure_source_relevance_columns()
     _ensure_official_website_review_columns()
+    _ensure_approved_request_pipeline_columns()
+    _ensure_approved_request_pipeline_indexes()
