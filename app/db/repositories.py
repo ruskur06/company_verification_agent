@@ -610,6 +610,8 @@ def _check_request_record_to_dict(
         "preferred_language": record.preferred_language,
         "status": record.status,
         "company_check_id": record.company_check_id,
+        "processing_check_id": record.processing_check_id,
+        "processing_started_at": record.processing_started_at,
         "created_at": record.created_at or datetime.utcnow(),
     }
 
@@ -730,6 +732,92 @@ def update_check_request_status(
             )
             .update(
                 {"status": new_status},
+                synchronize_session=False,
+            )
+        )
+
+        if updated_rows == 0:
+            session.rollback()
+            return None
+
+        session.commit()
+
+        record = (
+            session.query(CheckRequestRecord)
+            .filter(CheckRequestRecord.id == request_id)
+            .first()
+        )
+        if record is None:
+            return None
+
+        return _check_request_record_to_dict(record)
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+
+def company_check_id_exists(check_id: str) -> bool:
+    """Return whether a CompanyCheckRecord already uses this check_id."""
+    normalized = str(check_id).strip()
+    if not normalized:
+        raise ValueError("check_id must not be empty")
+
+    session = SessionLocal()
+    try:
+        record = (
+            session.query(CompanyCheckRecord.id)
+            .filter(CompanyCheckRecord.check_id == normalized)
+            .first()
+        )
+        return record is not None
+    finally:
+        session.close()
+
+
+def processing_check_id_exists(processing_check_id: str) -> bool:
+    """Return whether a CheckRequestRecord already uses this processing_check_id."""
+    normalized = str(processing_check_id).strip()
+    if not normalized:
+        raise ValueError("processing_check_id must not be empty")
+
+    session = SessionLocal()
+    try:
+        record = (
+            session.query(CheckRequestRecord.id)
+            .filter(CheckRequestRecord.processing_check_id == normalized)
+            .first()
+        )
+        return record is not None
+    finally:
+        session.close()
+
+
+def claim_approved_check_request_record(
+    request_id: int,
+    *,
+    processing_check_id: str,
+    processing_started_at: datetime,
+) -> dict | None:
+    """Atomically claim an approved request for processing."""
+    session = SessionLocal()
+    try:
+        updated_rows = (
+            session.query(CheckRequestRecord)
+            .filter(
+                CheckRequestRecord.id == request_id,
+                CheckRequestRecord.status == "approved",
+                CheckRequestRecord.company_check_id.is_(None),
+                CheckRequestRecord.processing_check_id.is_(None),
+                CheckRequestRecord.processing_started_at.is_(None),
+            )
+            .update(
+                {
+                    "status": "processing",
+                    "processing_check_id": processing_check_id,
+                    "processing_started_at": processing_started_at,
+                },
                 synchronize_session=False,
             )
         )

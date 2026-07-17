@@ -118,3 +118,11 @@ class CheckRequestResponse(BaseModel):
     status: CheckRequestStatus
     company_check_id: str | None = None
     created_at: datetime
+
+
+class ClaimedCheckRequest(BaseModel):
+    """Internal result of an approved → processing claim."""
+
+    request: CheckRequestResponse
+    processing_check_id: int
+    processing_started_at: datetime
