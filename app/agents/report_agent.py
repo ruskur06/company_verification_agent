@@ -19,12 +19,17 @@ def json_path_for_check(check_id: int) -> Path:
     return JSON_DIR / f"company_check_{check_id}.json"
 
 
+def markdown_path_for_check(check_id: int) -> Path:
+    """Return Markdown output path for a check."""
+    return REPORTS_DIR / f"company_check_{check_id}.md"
+
+
 def _json_path(check_id: int) -> Path:
     return json_path_for_check(check_id)
 
 
 def _report_path(check_id: int) -> Path:
-    return REPORTS_DIR / f"company_check_{check_id}.md"
+    return markdown_path_for_check(check_id)
 
 
 def _format_source_relevance_markdown(source: SourceResult) -> list[str]:
