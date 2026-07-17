@@ -125,8 +125,17 @@ class CompanyCheckAgent:
         company_name: str,
         country: str,
         domain: Optional[str] = None,
+        *,
+        check_id: Optional[int] = None,
     ) -> CompanyCheckResponse:
         """Run a preliminary company check through all agents."""
+        if check_id is not None and (
+            isinstance(check_id, bool)
+            or not isinstance(check_id, int)
+            or check_id <= 0
+        ):
+            raise ValueError("check_id must be a positive integer when supplied.")
+
         request = CompanyCheckRequest(
             company_name=company_name,
             country=country,
@@ -144,7 +153,7 @@ class CompanyCheckAgent:
         search_name = name_normalization.normalized_name
         user_domain = request.domain
 
-        check_id = _new_check_id()
+        resolved_check_id = _new_check_id() if check_id is None else check_id
 
         dns_info = self.domain_agent.run(user_domain)
 
@@ -248,7 +257,7 @@ class CompanyCheckAgent:
             )
 
         result = CompanyCheckResult(
-            check_id=check_id,
+            check_id=resolved_check_id,
             company=CompanyInfo(
                 name=request.company_name,
                 country=request.country,
@@ -288,7 +297,7 @@ class CompanyCheckAgent:
         _, report_path = self.report_agent.save(result)
 
         return CompanyCheckResponse(
-            check_id=check_id,
+            check_id=resolved_check_id,
             status=CheckStatus.completed,
             json_result=result,
             markdown_report_path=str(report_path),

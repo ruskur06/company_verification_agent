@@ -149,13 +149,29 @@ def _persist_company_check(response: CompanyCheckResponse) -> None:
         pass
 
 
+def execute_company_check_pipeline(
+    company_name: str,
+    country: str,
+    domain: Optional[str] = None,
+    *,
+    check_id: Optional[int] = None,
+) -> CompanyCheckResponse:
+    """Run the company-check pipeline without PostgreSQL persistence."""
+    return _check_agent.run(
+        company_name=company_name,
+        country=country,
+        domain=domain,
+        check_id=check_id,
+    )
+
+
 def run_company_check(
     company_name: str,
     country: str,
     domain: Optional[str] = None,
 ) -> CompanyCheckResponse:
     """Run a preliminary company check."""
-    response = _check_agent.run(
+    response = execute_company_check_pipeline(
         company_name=company_name,
         country=country,
         domain=domain,
