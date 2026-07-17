@@ -842,3 +842,139 @@ def claim_approved_check_request_record(
         raise
     finally:
         session.close()
+
+
+class ApprovedRequestPersistenceFenceError(RuntimeError):
+    """Raised when strict request finalization loses its processing fence."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        source_check_request_id: int,
+        processing_check_id: str,
+    ) -> None:
+        super().__init__(message)
+        self.source_check_request_id = source_check_request_id
+        self.processing_check_id = processing_check_id
+
+
+def _map_strict_company_check_fields(result: dict[str, Any]) -> dict[str, Any]:
+    """Map prepared result_payload fields using the legacy save_company_check rules."""
+    company = result.get("company") or {}
+    risk = result.get("risk") or {}
+
+    company_name = company.get("name") or result.get("company_name") or "unknown"
+    country = company.get("country") or result.get("country") or "unknown"
+    domain = company.get("domain") if "domain" in company else result.get("domain")
+
+    risk_score = risk.get("preliminary_score", result.get("risk_score"))
+    risk_level = risk.get("preliminary_level", result.get("risk_level"))
+    if hasattr(risk_level, "value"):
+        risk_level = risk_level.value
+
+    human_review_status = risk.get(
+        "human_review_status",
+        result.get("human_review_status", "pending"),
+    )
+    if hasattr(human_review_status, "value"):
+        human_review_status = human_review_status.value
+
+    registry_check = result.get("registry_check")
+    domain_check = result.get("domain_check") or result.get("domain_dns")
+    created_at = _parse_datetime(result.get("created_at")) or datetime.utcnow()
+
+    return {
+        "company_name": company_name,
+        "country": country,
+        "domain": domain,
+        "risk_score": risk_score,
+        "risk_level": risk_level,
+        "human_review_status": str(human_review_status),
+        "registry_check_json": _json_dumps(registry_check),
+        "domain_check_json": _json_dumps(domain_check),
+        "created_at": created_at,
+    }
+
+
+def persist_prepared_approved_request_check_record(
+    *,
+    source_check_request_id: int,
+    processing_check_id: str,
+    result_payload: dict[str, Any],
+    json_report_path: str,
+    markdown_report_path: str,
+    json_content: str,
+    markdown_content: str,
+) -> None:
+    """Insert CompanyCheck artifacts and fence processing → processed in one transaction."""
+    mapped_fields = _map_strict_company_check_fields(result_payload)
+    sources = result_payload.get("sources") or []
+    tool_calls = result_payload.get("tool_calls") or _build_default_tool_calls(
+        result_payload
+    )
+
+    session = SessionLocal()
+    try:
+        session.add(
+            CompanyCheckRecord(
+                check_id=processing_check_id,
+                source_check_request_id=source_check_request_id,
+                json_report_path=json_report_path,
+                markdown_report_path=markdown_report_path,
+                **mapped_fields,
+            )
+        )
+        _save_sources(session, processing_check_id, sources)
+        _save_tool_calls(session, processing_check_id, tool_calls)
+        session.add(
+            ReportRecord(
+                check_id=processing_check_id,
+                json_path=json_report_path,
+                markdown_path=markdown_report_path,
+                json_content=json_content,
+                markdown_content=markdown_content,
+            )
+        )
+
+        session.flush()
+
+        updated_rows = (
+            session.query(CheckRequestRecord)
+            .filter(
+                CheckRequestRecord.id == source_check_request_id,
+                CheckRequestRecord.status == "processing",
+                CheckRequestRecord.processing_check_id == processing_check_id,
+                CheckRequestRecord.company_check_id.is_(None),
+                CheckRequestRecord.processing_started_at.is_not(None),
+            )
+            .update(
+                {
+                    "status": "processed",
+                    "company_check_id": processing_check_id,
+                    "processing_check_id": None,
+                    "processing_started_at": None,
+                },
+                synchronize_session=False,
+            )
+        )
+        if updated_rows != 1:
+            raise ApprovedRequestPersistenceFenceError(
+                (
+                    f"Strict persistence fence failed for check request "
+                    f"{source_check_request_id} with processing check ID "
+                    f"{processing_check_id}."
+                ),
+                source_check_request_id=source_check_request_id,
+                processing_check_id=processing_check_id,
+            )
+
+        session.commit()
+    except Exception:
+        try:
+            session.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        session.close()

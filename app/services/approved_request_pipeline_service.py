@@ -7,8 +7,13 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from app.agents.report_agent import json_path_for_check, markdown_path_for_check
+from app.db.repositories import (  # noqa: F401
+    ApprovedRequestPersistenceFenceError,
+    persist_prepared_approved_request_check_record,
+)
+from app.schemas.approved_request_persistence import PersistedApprovedRequestCheck
 from app.schemas.approved_request_pipeline import PreparedApprovedRequestCheck
-from app.schemas.check_request import ClaimedCheckRequest
+from app.schemas.check_request import CheckRequestStatus, ClaimedCheckRequest
 from app.schemas.company_check import CheckStatus, CompanyCheckResponse, CompanyCheckResult
 from app.services.company_check_service import execute_company_check_pipeline
 
@@ -95,6 +100,57 @@ def execute_claimed_check_request(
         markdown_report_path=str(expected_markdown_path),
         json_content=json_content,
         markdown_content=markdown_content,
+    )
+
+
+def persist_prepared_approved_request_check(
+    prepared: PreparedApprovedRequestCheck,
+) -> PersistedApprovedRequestCheck:
+    """Persist prepared artifacts with a single insert-only fenced transaction."""
+    if prepared.source_check_request_id <= 0:
+        raise ValueError(
+            "source_check_request_id must be a positive integer."
+        )
+
+    processing_check_id = prepared.processing_check_id
+    if not processing_check_id.strip():
+        raise ValueError("processing_check_id must be a non-empty string.")
+    if len(processing_check_id) > 64:
+        raise ValueError("processing_check_id must be at most 64 characters.")
+
+    if not prepared.json_report_path.strip():
+        raise ValueError("json_report_path must be a non-empty string.")
+    if not prepared.markdown_report_path.strip():
+        raise ValueError("markdown_report_path must be a non-empty string.")
+    if not prepared.json_content.strip():
+        raise ValueError("json_content must be a non-empty string.")
+    if not prepared.markdown_content.strip():
+        raise ValueError("markdown_content must be a non-empty string.")
+
+    payload_check_id = prepared.result_payload.get("check_id")
+    if not isinstance(payload_check_id, str):
+        raise ValueError(
+            "result_payload check_id must be a string matching processing_check_id."
+        )
+    if payload_check_id != prepared.processing_check_id:
+        raise ValueError(
+            "result_payload check_id must equal processing_check_id."
+        )
+
+    persist_prepared_approved_request_check_record(
+        source_check_request_id=prepared.source_check_request_id,
+        processing_check_id=prepared.processing_check_id,
+        result_payload=prepared.result_payload,
+        json_report_path=prepared.json_report_path,
+        markdown_report_path=prepared.markdown_report_path,
+        json_content=prepared.json_content,
+        markdown_content=prepared.markdown_content,
+    )
+
+    return PersistedApprovedRequestCheck(
+        source_check_request_id=prepared.source_check_request_id,
+        company_check_id=prepared.processing_check_id,
+        status=CheckRequestStatus.processed,
     )
 
 
