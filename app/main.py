@@ -20,6 +20,9 @@ from pydantic import ValidationError
 from app.api.routes import router
 from app.db.database import init_db
 from app.schemas.check_request import CheckRequestCreate
+from app.services.approved_request_pipeline_service import (
+    run_approved_request_check,
+)
 from app.services.check_request_service import (
     CheckRequestNotFoundError,
     InvalidCheckRequestTransitionError,
@@ -29,15 +32,15 @@ from app.services.check_request_service import (
     list_check_requests,
     reject_check_request,
 )
-from app.services.public_request_guard import (
-    PUBLIC_REQUEST_MAX_BODY_BYTES,
-    PUBLIC_REQUEST_RATE_WINDOW_SECONDS,
-    public_request_rate_limiter,
-)
 from app.services.company_check_service import (
     list_checks_from_db,
     load_company_check,
     run_company_check,
+)
+from app.services.public_request_guard import (
+    PUBLIC_REQUEST_MAX_BODY_BYTES,
+    PUBLIC_REQUEST_RATE_WINDOW_SECONDS,
+    public_request_rate_limiter,
 )
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -517,6 +520,25 @@ def reject_check_request_action(request_id: int) -> RedirectResponse:
 
     return RedirectResponse(
         url=f"/internal/requests/{request_id}",
+        status_code=303,
+    )
+
+
+@app.post("/internal/requests/{request_id}/run")
+def run_check_request_action(request_id: int) -> RedirectResponse:
+    """Manually run the strict pipeline for one approved check request."""
+    try:
+        result = run_approved_request_check(request_id)
+    except CheckRequestNotFoundError as exc:
+        raise HTTPException(status_code=404) from exc
+    except InvalidCheckRequestTransitionError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="Check request cannot be run from its current state.",
+        ) from exc
+
+    return RedirectResponse(
+        url=f"/internal/result/{result.company_check_id}",
         status_code=303,
     )
 
