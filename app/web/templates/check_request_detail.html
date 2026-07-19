@@ -15,8 +15,9 @@
             </div>
 
             <p class="muted">
-                Operator view of one public check request. Verification is not
-                started automatically from this page.
+                Operator view of one public check request. Verification starts
+                only when an operator approves the request and manually runs
+                the check.
             </p>
 
             {% if invalid_transition %}
@@ -78,6 +79,10 @@
                             <a href="/internal/result/{{ check_request.company_check_id }}">
                                 {{ check_request.company_check_id }}
                             </a>
+                        {% elif check_request.status.value == "processing" %}
+                            Available after processing completes
+                        {% elif check_request.status.value == "processed" %}
+                            Result ID unavailable
                         {% else %}
                             No verification run yet
                         {% endif %}
@@ -110,6 +115,32 @@
                         <button type="submit">Reject request</button>
                     </form>
                 </section>
+            {% elif check_request.status.value == "approved" %}
+                <section class="section">
+                    <h2>Operator actions</h2>
+                    <form
+                        action="/internal/requests/{{ check_request.id }}/run"
+                        method="post"
+                        class="form"
+                    >
+                        <button type="submit">Run check</button>
+                    </form>
+                </section>
+            {% elif check_request.status.value == "processing" %}
+                <p class="muted">
+                    Verification is currently in progress. Do not start another run.
+                </p>
+            {% elif check_request.status.value == "processed" %}
+                <p>Verification complete.</p>
+                {% if check_request.company_check_id %}
+                    <p>
+                        <a href="/internal/result/{{ check_request.company_check_id }}">
+                            View verification result
+                        </a>
+                    </p>
+                {% else %}
+                    <p>Marked processed, but no result was found.</p>
+                {% endif %}
             {% endif %}
 
             <div class="links">

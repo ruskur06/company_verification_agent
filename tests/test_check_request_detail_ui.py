@@ -294,35 +294,188 @@ def test_check_request_detail_escapes_unsafe_html(
     assert "onerror" in text
 
 
-def test_check_request_detail_is_read_only_after_decision(sqlite_db, client):
-    saved = _create_full_request()
-
-    session = sqlite_db()
+def _set_request_fields(session_factory, request_id: int, **fields) -> None:
+    session = session_factory()
     try:
         record = (
             session.query(CheckRequestRecord)
-            .filter(CheckRequestRecord.id == saved.id)
+            .filter(CheckRequestRecord.id == request_id)
             .one()
         )
-        record.status = "approved"
+        for key, value in fields.items():
+            setattr(record, key, value)
         session.commit()
     finally:
         session.close()
 
+
+def _run_form_count(text: str, request_id: int) -> int:
+    return text.count(
+        f'action="/internal/requests/{request_id}/run"'
+    )
+
+
+def test_pending_detail_shows_approve_reject_not_run(sqlite_db, client):
+    saved = _create_full_request()
+
     response = client.get(f"/internal/requests/{saved.id}")
-    text = response.text.lower()
+    text = response.text
 
     assert response.status_code == 200
     assert (
         f'action="/internal/requests/{saved.id}/approve"'
-        not in response.text
+        in text
     )
     assert (
         f'action="/internal/requests/{saved.id}/reject"'
-        not in response.text
+        in text
     )
-    assert "run check" not in text
-    assert 'action="/internal/run-check"' not in text
+    assert _run_form_count(text, saved.id) == 0
+    assert "Run check" not in text
+    assert (
+        "Verification starts only when an operator approves the request"
+        " and manually runs the check."
+    ) in " ".join(text.split())
+
+
+def test_approved_detail_shows_run_check_only(sqlite_db, client):
+    saved = _create_full_request()
+    _set_request_fields(sqlite_db, saved.id, status="approved")
+
+    response = client.get(f"/internal/requests/{saved.id}")
+    text = response.text
+
+    assert response.status_code == 200
+    assert _run_form_count(text, saved.id) == 1
+    assert (
+        f'action="/internal/requests/{saved.id}/run"'
+        in text
+    )
+    assert re.search(
+        rf'<form\s+action="/internal/requests/{saved.id}/run"\s+'
+        r'method="post"\s+class="form"\s*>',
+        text,
+    )
+    assert ">Run check</button>" in text
+    assert (
+        f'action="/internal/requests/{saved.id}/approve"'
+        not in text
+    )
+    assert (
+        f'action="/internal/requests/{saved.id}/reject"'
+        not in text
+    )
+
+
+def test_processing_detail_shows_progress_message(sqlite_db, client):
+    saved = _create_full_request()
+    _set_request_fields(sqlite_db, saved.id, status="processing")
+
+    response = client.get(f"/internal/requests/{saved.id}")
+    text = response.text
+
+    assert response.status_code == 200
+    assert (
+        f'action="/internal/requests/{saved.id}/approve"'
+        not in text
+    )
+    assert (
+        f'action="/internal/requests/{saved.id}/reject"'
+        not in text
+    )
+    assert _run_form_count(text, saved.id) == 0
+    assert "Run check" not in text
+    assert (
+        "Verification is currently in progress. Do not start another run."
+        in text
+    )
+    assert "Available after processing completes" in text
+    assert "No verification run yet" not in text
+
+
+def test_processed_detail_with_company_check_id_shows_result_link(
+    sqlite_db,
+    client,
+):
+    saved = _create_full_request()
+    linked_check_id = "1782245998769"
+    _set_request_fields(
+        sqlite_db,
+        saved.id,
+        status="processed",
+        company_check_id=linked_check_id,
+    )
+
+    response = client.get(f"/internal/requests/{saved.id}")
+    text = response.text
+
+    assert response.status_code == 200
+    assert (
+        f'action="/internal/requests/{saved.id}/approve"'
+        not in text
+    )
+    assert (
+        f'action="/internal/requests/{saved.id}/reject"'
+        not in text
+    )
+    assert _run_form_count(text, saved.id) == 0
+    assert "Run check" not in text
+    assert "Verification complete." in text
+    assert f'href="/internal/result/{linked_check_id}"' in text
+    assert "View verification result" in text
+
+
+def test_processed_detail_without_company_check_id_shows_fallback(
+    sqlite_db,
+    client,
+):
+    saved = _create_full_request()
+    _set_request_fields(
+        sqlite_db,
+        saved.id,
+        status="processed",
+        company_check_id=None,
+    )
+
+    response = client.get(f"/internal/requests/{saved.id}")
+    text = response.text
+
+    assert response.status_code == 200
+    assert (
+        f'action="/internal/requests/{saved.id}/approve"'
+        not in text
+    )
+    assert (
+        f'action="/internal/requests/{saved.id}/reject"'
+        not in text
+    )
+    assert _run_form_count(text, saved.id) == 0
+    assert "Marked processed, but no result was found." in text
+    assert "Result ID unavailable" in text
+    assert "No verification run yet" not in text
+    assert 'href="/internal/result/None"' not in text
+    assert 'href="/internal/result/"' not in text
+    assert "View verification result" not in text
+
+
+def test_rejected_detail_hides_all_operator_actions(sqlite_db, client):
+    saved = _create_full_request()
+    _set_request_fields(sqlite_db, saved.id, status="rejected")
+
+    response = client.get(f"/internal/requests/{saved.id}")
+    text = response.text
+
+    assert response.status_code == 200
+    assert (
+        f'action="/internal/requests/{saved.id}/approve"'
+        not in text
+    )
+    assert (
+        f'action="/internal/requests/{saved.id}/reject"'
+        not in text
+    )
+    assert _run_form_count(text, saved.id) == 0
+    assert "Run check" not in text
 
 
 def test_check_request_detail_does_not_call_pipeline(
@@ -330,14 +483,26 @@ def test_check_request_detail_does_not_call_pipeline(
     client,
     monkeypatch,
 ):
-    pipeline = Mock()
-    monkeypatch.setattr("app.main.run_company_check", pipeline)
+    orchestration = Mock(
+        side_effect=AssertionError("orchestration must not run on GET")
+    )
+    legacy_pipeline = Mock(
+        side_effect=AssertionError("legacy pipeline must not run on GET")
+    )
+    monkeypatch.setattr(
+        "app.main.run_approved_request_check",
+        orchestration,
+    )
+    monkeypatch.setattr("app.main.run_company_check", legacy_pipeline)
+
     saved = _create_full_request()
+    _set_request_fields(sqlite_db, saved.id, status="approved")
 
     response = client.get(f"/internal/requests/{saved.id}")
 
     assert response.status_code == 200
-    pipeline.assert_not_called()
+    orchestration.assert_not_called()
+    legacy_pipeline.assert_not_called()
 
 
 def test_check_request_detail_does_not_mutate_record(
