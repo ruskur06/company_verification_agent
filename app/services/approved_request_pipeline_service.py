@@ -1,4 +1,4 @@
-"""Execute and validate an already-claimed approved check request."""
+"""Approved-request pipeline execution, persistence, and orchestration."""
 
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ from app.schemas.approved_request_persistence import PersistedApprovedRequestChe
 from app.schemas.approved_request_pipeline import PreparedApprovedRequestCheck
 from app.schemas.check_request import CheckRequestStatus, ClaimedCheckRequest
 from app.schemas.company_check import CheckStatus, CompanyCheckResponse, CompanyCheckResult
+from app.services.check_request_service import claim_approved_check_request
 from app.services.company_check_service import execute_company_check_pipeline
 
 
@@ -37,6 +38,21 @@ class ReportFileCollisionError(RuntimeError):
 
 class PreparedCheckValidationError(RuntimeError):
     """Raised when pipeline response or report artifacts fail validation."""
+
+
+def run_approved_request_check(
+    request_id: int,
+) -> PersistedApprovedRequestCheck:
+    """Claim, execute, and persist one approved check request.
+
+    Pipeline report artifacts are non-transactional. A failure after a successful
+    claim may leave the request in ``processing``, and generated JSON/Markdown
+    files may remain for future reconciliation. Cleanup and recovery are
+    intentionally outside this orchestration step.
+    """
+    claimed = claim_approved_check_request(request_id)
+    prepared = execute_claimed_check_request(claimed)
+    return persist_prepared_approved_request_check(prepared)
 
 
 def execute_claimed_check_request(
