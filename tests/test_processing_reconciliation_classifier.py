@@ -32,7 +32,7 @@ EXACT_BOUNDARY_AT = STARTED_AT + STALE_AFTER
 
 def _request(
     *,
-    status: CheckRequestStatus = CheckRequestStatus.processing,
+    status: CheckRequestStatus | str = CheckRequestStatus.processing,
     company_check_id: str | None = None,
     processing_check_id: str | None = PROCESSING_CHECK_ID,
     processing_started_at: datetime | None = STARTED_AT,
@@ -688,3 +688,14 @@ def test_no_source_record_minimum_for_complete():
         with_sources.classification
         is ReconciliationClassification.stale_persisted_complete
     )
+
+
+def test_unknown_status_is_processing_inconsistent():
+    result = classify_processing_reconciliation(
+        _facts(request=_request(status="approved-but-weird"))
+    )
+    assert (
+        result.classification
+        is ReconciliationClassification.processing_inconsistent
+    )
+    assert "status_not_processing" in result.reasons

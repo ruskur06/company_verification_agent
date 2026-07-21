@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +15,13 @@ from app.db.models import (
     ReportRecord,
     SourceRecord,
     ToolCallRecord,
+)
+from app.schemas.processing_reconciliation import (
+    ProcessingReconciliationDatabaseInspection,
+    ProcessingRequestFacts,
+    ReconciliationCompanyCheckSnapshot,
+    ReconciliationDatabaseFacts,
+    ReconciliationReportSnapshot,
 )
 
 
@@ -976,5 +983,180 @@ def persist_prepared_approved_request_check_record(
         except Exception:
             pass
         raise
+    finally:
+        session.close()
+
+
+def _as_aware_utc(value: datetime | None) -> datetime | None:
+    """Treat naive DB timestamps as UTC and normalize aware values to UTC."""
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def _normalize_optional_check_id(value: str | None) -> str | None:
+    """Strip linkage/token query values without mutating stored DB fields."""
+    if value is None:
+        return None
+    normalized = value.strip()
+    return normalized or None
+
+
+def get_processing_reconciliation_database_inspection(
+    request_id: int,
+) -> ProcessingReconciliationDatabaseInspection | None:
+    """Read advisory DB facts for one CheckRequest reconciliation diagnosis.
+
+    Multiple SELECTs under PostgreSQL READ COMMITTED may observe read-skew.
+    This diagnostic result is advisory; Commit 7 must freshly revalidate
+    everything before mutation.
+    """
+    if (
+        isinstance(request_id, bool)
+        or not isinstance(request_id, int)
+        or request_id <= 0
+    ):
+        raise ValueError("request_id must be a positive integer")
+
+    session = SessionLocal()
+    try:
+        record = (
+            session.query(CheckRequestRecord)
+            .filter(CheckRequestRecord.id == request_id)
+            .one_or_none()
+        )
+        if record is None:
+            return None
+
+        request_facts = ProcessingRequestFacts(
+            request_id=record.id,
+            status=record.status,
+            company_check_id=_normalize_optional_check_id(
+                record.company_check_id
+            ),
+            processing_check_id=_normalize_optional_check_id(
+                record.processing_check_id
+            ),
+            processing_started_at=_as_aware_utc(
+                record.processing_started_at
+            ),
+        )
+
+        token = request_facts.processing_check_id
+        if token is None:
+            return ProcessingReconciliationDatabaseInspection(
+                request=request_facts,
+                database=ReconciliationDatabaseFacts(),
+                token_company_checks=(),
+                token_report_records=(),
+            )
+
+        company_check_rows = (
+            session.query(CompanyCheckRecord)
+            .filter(CompanyCheckRecord.check_id == token)
+            .order_by(CompanyCheckRecord.id.asc())
+            .all()
+        )
+        token_company_checks = tuple(
+            ReconciliationCompanyCheckSnapshot(
+                record_id=row.id,
+                check_id=row.check_id,
+                source_check_request_id=row.source_check_request_id,
+                json_report_path=row.json_report_path,
+                markdown_report_path=row.markdown_report_path,
+            )
+            for row in company_check_rows
+        )
+        # Malformed raw source_check_request_id values remain in
+        # token_company_checks; the classifier-facing facts schema
+        # supports only positive IDs or None.
+        matching_source_ids: list[int | None] = []
+        for row in company_check_rows:
+            source_id = row.source_check_request_id
+            if (
+                isinstance(source_id, int)
+                and not isinstance(source_id, bool)
+                and source_id > 0
+            ):
+                matching_source_ids.append(source_id)
+            else:
+                matching_source_ids.append(None)
+
+        foreign_rows = (
+            session.query(CheckRequestRecord.id)
+            .filter(
+                CheckRequestRecord.processing_check_id == token,
+                CheckRequestRecord.id != request_id,
+            )
+            .order_by(CheckRequestRecord.id.asc())
+            .all()
+        )
+        foreign_processing_token_request_ids = tuple(
+            row_id for (row_id,) in foreign_rows
+        )
+
+        source_record_count = (
+            session.query(SourceRecord)
+            .filter(SourceRecord.check_id == token)
+            .count()
+        )
+
+        tool_call_rows = (
+            session.query(ToolCallRecord)
+            .filter(ToolCallRecord.check_id == token)
+            .order_by(ToolCallRecord.id.asc())
+            .all()
+        )
+        tool_call_names = tuple(row.tool_name for row in tool_call_rows)
+
+        report_rows = (
+            session.query(ReportRecord)
+            .filter(ReportRecord.check_id == token)
+            .order_by(ReportRecord.id.asc())
+            .all()
+        )
+        token_report_records = tuple(
+            ReconciliationReportSnapshot(
+                record_id=row.id,
+                check_id=row.check_id,
+                json_path=row.json_path,
+                markdown_path=row.markdown_path,
+                json_content=row.json_content,
+                markdown_content=row.markdown_content,
+            )
+            for row in report_rows
+        )
+
+        has_token_company_check = bool(token_company_checks)
+        if has_token_company_check:
+            orphan_source_record_count = 0
+            orphan_tool_call_record_count = 0
+            orphan_report_record_count = 0
+        else:
+            orphan_source_record_count = source_record_count
+            orphan_tool_call_record_count = len(tool_call_names)
+            orphan_report_record_count = len(token_report_records)
+
+        return ProcessingReconciliationDatabaseInspection(
+            request=request_facts,
+            database=ReconciliationDatabaseFacts(
+                matching_company_check_source_request_ids=tuple(
+                    matching_source_ids
+                ),
+                foreign_processing_token_request_ids=(
+                    foreign_processing_token_request_ids
+                ),
+                source_record_count=source_record_count,
+                tool_call_names=tool_call_names,
+                report_record_count=len(token_report_records),
+                orphan_source_record_count=orphan_source_record_count,
+                orphan_tool_call_record_count=orphan_tool_call_record_count,
+                orphan_report_record_count=orphan_report_record_count,
+            ),
+            token_company_checks=token_company_checks,
+            token_report_records=token_report_records,
+        )
     finally:
         session.close()

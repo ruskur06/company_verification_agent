@@ -22,6 +22,12 @@ REQUIRED_TOOL_CALLS: tuple[str, ...] = (
 _REQUIRED_TOOL_CALL_COUNTS = Counter(REQUIRED_TOOL_CALLS)
 
 
+def _status_value(status: CheckRequestStatus | str) -> str:
+    if isinstance(status, CheckRequestStatus):
+        return status.value
+    return status
+
+
 def classify_processing_reconciliation(
     facts: ProcessingReconciliationFacts,
 ) -> ProcessingReconciliationDiagnosis:
@@ -124,7 +130,7 @@ def _core_inconsistency_reasons(
     request = facts.request
     reasons: list[str] = []
 
-    if request.status is not CheckRequestStatus.processing:
+    if _status_value(request.status) != CheckRequestStatus.processing.value:
         reasons.append("status_not_processing")
     if request.processing_check_id is None:
         reasons.append("missing_processing_check_id")

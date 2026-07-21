@@ -458,3 +458,103 @@ def test_json_valid_true_with_parsed_check_id_none_remains_valid():
     )
     assert artifact.json_valid is True
     assert artifact.parsed_check_id is None
+
+
+def test_canonical_processing_status_string_becomes_enum():
+    facts = ProcessingRequestFacts(
+        request_id=1,
+        status="processing",
+        processing_check_id="1",
+        processing_started_at=FIXED_STARTED_AT,
+    )
+    assert facts.status is CheckRequestStatus.processing
+
+
+def test_unknown_status_string_is_preserved_exactly():
+    facts = ProcessingRequestFacts(
+        request_id=1,
+        status="weird-status",
+        processing_check_id="1",
+        processing_started_at=FIXED_STARTED_AT,
+    )
+    assert facts.status == "weird-status"
+
+
+@pytest.mark.parametrize(
+    "raw_status",
+    ["Processing", " processing", "processing ", " PROCESSIN G"],
+)
+def test_status_whitespace_and_casing_are_not_normalized(raw_status: str):
+    facts = ProcessingRequestFacts(
+        request_id=1,
+        status=raw_status,
+        processing_check_id="1",
+        processing_started_at=FIXED_STARTED_AT,
+    )
+    assert facts.status == raw_status
+    assert not isinstance(facts.status, CheckRequestStatus)
+
+
+@pytest.mark.parametrize("invalid_status", [1, True, None, 1.5])
+def test_non_string_status_rejected(invalid_status):
+    with pytest.raises(ValidationError):
+        ProcessingRequestFacts(
+            request_id=1,
+            status=invalid_status,
+            processing_check_id="1",
+            processing_started_at=FIXED_STARTED_AT,
+        )
+
+
+def test_snapshot_models_are_frozen_and_forbid_extra():
+    from app.schemas.processing_reconciliation import (
+        ProcessingReconciliationDatabaseInspection,
+        ReconciliationCompanyCheckSnapshot,
+        ReconciliationReportSnapshot,
+    )
+
+    company = ReconciliationCompanyCheckSnapshot(
+        record_id=1,
+        check_id="1782245999001",
+        source_check_request_id=0,
+        json_report_path="",
+        markdown_report_path=None,
+    )
+    report = ReconciliationReportSnapshot(
+        record_id=2,
+        check_id="1782245999001",
+        json_path="",
+        markdown_path=None,
+        json_content=None,
+        markdown_content="",
+    )
+    bundle = ProcessingReconciliationDatabaseInspection(
+        request=_valid_request_facts(),
+        database=ReconciliationDatabaseFacts(),
+        token_company_checks=(company,),
+        token_report_records=(report,),
+    )
+    with pytest.raises(ValidationError):
+        setattr(company, "check_id", company.check_id)
+    with pytest.raises(ValidationError):
+        setattr(report, "check_id", report.check_id)
+    with pytest.raises(ValidationError):
+        setattr(bundle, "request", bundle.request)
+    with pytest.raises(ValidationError):
+        ReconciliationCompanyCheckSnapshot(
+            record_id=1,
+            check_id="1",
+            unexpected="nope",
+        )
+    with pytest.raises(ValidationError):
+        ReconciliationReportSnapshot(
+            record_id=1,
+            check_id="1",
+            unexpected="nope",
+        )
+    with pytest.raises(ValidationError):
+        ProcessingReconciliationDatabaseInspection(
+            request=_valid_request_facts(),
+            database=ReconciliationDatabaseFacts(),
+            unexpected="nope",
+        )

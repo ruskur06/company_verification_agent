@@ -62,10 +62,25 @@ class ProcessingRequestFacts(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     request_id: PositiveStrictInt
-    status: CheckRequestStatus
+    status: CheckRequestStatus | StrictStr
     company_check_id: StrictStr | None = None
     processing_check_id: StrictStr | None = None
     processing_started_at: AwareDatetime | None = None
+
+    @field_validator("status", mode="before")
+    @classmethod
+    def coerce_status(
+        cls,
+        value: object,
+    ) -> CheckRequestStatus | str:
+        if isinstance(value, CheckRequestStatus):
+            return value
+        if not isinstance(value, str):
+            raise ValueError("status must be a string")
+        try:
+            return CheckRequestStatus(value)
+        except ValueError:
+            return value
 
     @field_validator("company_check_id", "processing_check_id")
     @classmethod
@@ -74,6 +89,31 @@ class ProcessingRequestFacts(BaseModel):
         value: StrictStr | None,
     ) -> StrictStr | None:
         return _reject_blank_optional_id(value)
+
+
+class ReconciliationCompanyCheckSnapshot(BaseModel):
+    """Raw CompanyCheck row matched by processing token check_id."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    record_id: PositiveStrictInt
+    check_id: StrictStr
+    source_check_request_id: StrictInt | None = None
+    json_report_path: StrictStr | None = None
+    markdown_report_path: StrictStr | None = None
+
+
+class ReconciliationReportSnapshot(BaseModel):
+    """Raw ReportRecord row matched by processing token check_id."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    record_id: PositiveStrictInt
+    check_id: StrictStr
+    json_path: StrictStr | None = None
+    markdown_path: StrictStr | None = None
+    json_content: StrictStr | None = None
+    markdown_content: StrictStr | None = None
 
 
 class ReconciliationDatabaseFacts(BaseModel):
@@ -203,6 +243,24 @@ class ProcessingReconciliationFacts(BaseModel):
         if self.stale_after <= timedelta(0):
             raise ValueError("stale_after must be greater than zero")
         return self
+
+
+class ProcessingReconciliationDatabaseInspection(BaseModel):
+    """Advisory read-only DB inspection bundle for one CheckRequest.
+
+    token_company_checks contains every CompanyCheckRecord whose check_id
+    equals the normalized processing token, regardless of ownership.
+    token_report_records contains every ReportRecord for that token, even
+    when no CompanyCheck exists. Tuple order is record ID ascending.
+    This bundle cannot authorize mutation.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    request: ProcessingRequestFacts
+    database: ReconciliationDatabaseFacts
+    token_company_checks: tuple[ReconciliationCompanyCheckSnapshot, ...] = ()
+    token_report_records: tuple[ReconciliationReportSnapshot, ...] = ()
 
 
 class ProcessingReconciliationDiagnosis(BaseModel):
