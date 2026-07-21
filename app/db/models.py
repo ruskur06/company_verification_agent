@@ -177,3 +177,69 @@ class HumanReviewRecord(Base):
     final_business_risk: Mapped[str] = mapped_column(String(20), nullable=False)
     overrides_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
+
+class ReconciliationActionRecord(Base):
+    """Append-only reconciliation action evidence.
+
+    Multiple rows for the same request and processing token are intentional.
+    This table is not a concurrency-control mechanism.
+    """
+
+    __tablename__ = "reconciliation_action_records"
+    __table_args__ = (
+        Index(
+            "ix_reconciliation_action_records_check_request_id",
+            "check_request_id",
+        ),
+        Index(
+            "ix_reconciliation_action_records_processing_check_id",
+            "processing_check_id",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(
+        Integer,
+        primary_key=True,
+    )
+    check_request_id: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+    )
+    processing_check_id: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+    )
+    action: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+    )
+    outcome: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+    )
+    diagnosis_snapshot_json: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+    )
+    artifact_json_sha256: Mapped[Optional[str]] = mapped_column(
+        String(64),
+        nullable=True,
+    )
+    artifact_markdown_sha256: Mapped[Optional[str]] = mapped_column(
+        String(64),
+        nullable=True,
+    )
+    actor_label: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+    )
+    operator_note: Mapped[Optional[str]] = mapped_column(
+        Text,
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=func.now(),
+        nullable=False,
+    )
