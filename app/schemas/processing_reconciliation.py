@@ -24,6 +24,19 @@ from app.schemas.check_request import CheckRequestStatus
 PositiveStrictInt = Annotated[StrictInt, Field(gt=0)]
 
 
+def is_canonical_processing_check_id(value: str | None) -> bool:
+    """Return True for a positive ASCII-digit processing token with no padding."""
+    if value is None or value == "":
+        return False
+    if len(value) > 64:
+        return False
+    if not value.isascii() or not value.isdigit():
+        return False
+    if value[0] == "0":
+        return False
+    return True
+
+
 class ReconciliationClassification(str, Enum):
     """Successful diagnosis classification for a processing request."""
 

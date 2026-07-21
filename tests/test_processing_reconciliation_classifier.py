@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 from app.schemas.check_request import CheckRequestStatus
 from app.schemas.processing_reconciliation import (
     ArtifactFileFacts,
@@ -699,3 +701,18 @@ def test_unknown_status_is_processing_inconsistent():
         is ReconciliationClassification.processing_inconsistent
     )
     assert "status_not_processing" in result.reasons
+
+
+@pytest.mark.parametrize(
+    "token",
+    ["0", "01", "abc", "+1782245999001", " 1782245999001"],
+)
+def test_invalid_processing_check_id_format_is_inconsistent(token: str):
+    result = classify_processing_reconciliation(
+        _facts(request=_request(processing_check_id=token))
+    )
+    assert (
+        result.classification
+        is ReconciliationClassification.processing_inconsistent
+    )
+    assert "invalid_processing_check_id_format" in result.reasons

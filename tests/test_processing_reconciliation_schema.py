@@ -460,6 +460,44 @@ def test_json_valid_true_with_parsed_check_id_none_remains_valid():
     assert artifact.parsed_check_id is None
 
 
+@pytest.mark.parametrize(
+    "token",
+    ["1", "9", "1782245999001", "123456789012345678901234567890"],
+)
+def test_canonical_processing_check_id_accepts_valid_tokens(token: str):
+    from app.schemas.processing_reconciliation import (
+        is_canonical_processing_check_id,
+    )
+
+    assert is_canonical_processing_check_id(token) is True
+
+
+@pytest.mark.parametrize(
+    "token",
+    [
+        None,
+        "",
+        "0",
+        "01",
+        "0123",
+        "+1",
+        "-1",
+        " 1",
+        "1 ",
+        "1a",
+        "١٢٣",
+        "1/2",
+        "1" * 65,
+    ],
+)
+def test_canonical_processing_check_id_rejects_invalid_tokens(token):
+    from app.schemas.processing_reconciliation import (
+        is_canonical_processing_check_id,
+    )
+
+    assert is_canonical_processing_check_id(token) is False
+
+
 def test_canonical_processing_status_string_becomes_enum():
     facts = ProcessingRequestFacts(
         request_id=1,

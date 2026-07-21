@@ -10,6 +10,7 @@ from app.schemas.processing_reconciliation import (
     ProcessingReconciliationFacts,
     ReconciliationClassification,
     ReconciliationConsistency,
+    is_canonical_processing_check_id,
 )
 
 
@@ -134,6 +135,8 @@ def _core_inconsistency_reasons(
         reasons.append("status_not_processing")
     if request.processing_check_id is None:
         reasons.append("missing_processing_check_id")
+    elif not is_canonical_processing_check_id(request.processing_check_id):
+        reasons.append("invalid_processing_check_id_format")
     if request.processing_started_at is None:
         reasons.append("missing_processing_started_at")
     if request.company_check_id is not None:
