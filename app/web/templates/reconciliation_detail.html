@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="robots" content="noindex, nofollow">
+    <title>Processing Reconciliation Detail</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <main class="container">
+        <section class="card">
+            <div class="top-row">
+                <h1>Processing Reconciliation Detail</h1>
+                <a href="/internal/reconciliation" class="secondary-link">
+                    Back to list
+                </a>
+            </div>
+
+            <p class="muted">
+                Read-only advisory diagnosis. This page does not mutate
+                database state, finalize stuck requests, retry pipelines,
+                or clean up artifacts. Authentication and access control
+                are required before deploying these internal pages.
+            </p>
+
+            <p>
+                Stale threshold:
+                {{ (stale_after.total_seconds() / 60)|int }} minutes
+            </p>
+
+            {% if result.kind == "diagnosis" %}
+                <h2>Diagnosis</h2>
+                <table>
+                    <tbody>
+                        <tr>
+                            <th>Request ID</th>
+                            <td>{{ result.request_id }}</td>
+                        </tr>
+                        <tr>
+                            <th>Processing token</th>
+                            <td>{{ result.processing_check_id if result.processing_check_id else "—" }}</td>
+                        </tr>
+                        <tr>
+                            <th>Classification</th>
+                            <td>{{ result.classification.value }}</td>
+                        </tr>
+                        <tr>
+                            <th>Diagnosed at</th>
+                            <td>{{ result.diagnosed_at }}</td>
+                        </tr>
+                        <tr>
+                            <th>Age (seconds)</th>
+                            <td>{{ result.age_seconds if result.age_seconds is not none else "—" }}</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <h3>Reasons</h3>
+                {% if result.reasons %}
+                    <ul>
+                        {% for reason in result.reasons %}
+                            <li>{{ reason }}</li>
+                        {% endfor %}
+                    </ul>
+                {% else %}
+                    <p class="muted">No inconsistency reasons.</p>
+                {% endif %}
+            {% else %}
+                <h2>Diagnosis error</h2>
+                <table>
+                    <tbody>
+                        <tr>
+                            <th>Request ID</th>
+                            <td>{{ result.request_id if result.request_id is not none else "—" }}</td>
+                        </tr>
+                        <tr>
+                            <th>Processing token</th>
+                            <td>{{ result.processing_check_id if result.processing_check_id else "—" }}</td>
+                        </tr>
+                        <tr>
+                            <th>Reason</th>
+                            <td>{{ result.reason.value }}</td>
+                        </tr>
+                        <tr>
+                            <th>Detail</th>
+                            <td>{{ result.detail }}</td>
+                        </tr>
+                        <tr>
+                            <th>Diagnosed at</th>
+                            <td>{{ result.diagnosed_at }}</td>
+                        </tr>
+                    </tbody>
+                </table>
+            {% endif %}
+
+            <div class="links">
+                <a href="/internal/reconciliation">Back to reconciliation</a>
+                <a href="/internal/requests">Back to check requests</a>
+            </div>
+        </section>
+    </main>
+</body>
+</html>

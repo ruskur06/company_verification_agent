@@ -69,6 +69,28 @@ def _reject_blank_optional_id(value: StrictStr | None) -> StrictStr | None:
     return value
 
 
+class ProcessingReconciliationRequestSummary(BaseModel):
+    """Allowlisted internal summary row for processing reconciliation list UI."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    id: PositiveStrictInt
+    company_name: StrictStr
+    country: StrictStr
+    processing_check_id: StrictStr | None = None
+    processing_started_at: AwareDatetime | None = None
+    created_at: AwareDatetime
+    company_check_id: StrictStr | None = None
+
+    @field_validator("processing_check_id", "company_check_id")
+    @classmethod
+    def reject_blank_check_ids(
+        cls,
+        value: StrictStr | None,
+    ) -> StrictStr | None:
+        return _reject_blank_optional_id(value)
+
+
 class ProcessingRequestFacts(BaseModel):
     """Already-inspected CheckRequest facts used for classification."""
 

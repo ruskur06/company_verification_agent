@@ -13,12 +13,16 @@ from pydantic import ValidationError
 from sqlalchemy.exc import SQLAlchemyError
 
 import app.agents.report_agent as report_agent
-from app.db.repositories import get_processing_reconciliation_database_inspection
+from app.db.repositories import (
+    get_processing_reconciliation_database_inspection,
+    list_processing_check_request_records,
+)
 from app.schemas.processing_reconciliation import (
     ArtifactFileFacts,
     JsonArtifactFacts,
     ProcessingReconciliationDiagnosisError,
     ProcessingReconciliationFacts,
+    ProcessingReconciliationRequestSummary,
     ProcessingReconciliationResult,
     ReconciliationArtifactFacts,
     ReconciliationConsistency,
@@ -32,6 +36,9 @@ from app.services.processing_reconciliation_classifier import (
 )
 
 
+PROCESSING_RECONCILIATION_STALE_AFTER = timedelta(minutes=30)
+
+
 class ProcessingReconciliationRequestNotFoundError(LookupError):
     """Raised when diagnosis is requested for a missing CheckRequest."""
 
@@ -41,6 +48,48 @@ class ProcessingReconciliationRequestNotFoundError(LookupError):
             f"Check request {request_id} was not found for reconciliation "
             f"diagnosis."
         )
+
+
+def list_processing_reconciliation_requests(
+    limit: int = 50,
+) -> list[ProcessingReconciliationRequestSummary]:
+    """List processing requests for the internal reconciliation UI."""
+    if (
+        isinstance(limit, bool)
+        or not isinstance(limit, int)
+        or limit <= 0
+    ):
+        raise ValueError("limit must be a positive integer")
+
+    records = list_processing_check_request_records(limit=limit)
+    summaries: list[ProcessingReconciliationRequestSummary] = []
+    for record in records:
+        created_at = _as_aware_utc(record["created_at"])
+        if created_at is None:
+            raise ValueError("created_at is required")
+        summaries.append(
+            ProcessingReconciliationRequestSummary(
+                id=record["id"],
+                company_name=record["company_name"],
+                country=record["country"],
+                processing_check_id=record["processing_check_id"],
+                processing_started_at=_as_aware_utc(
+                    record["processing_started_at"]
+                ),
+                created_at=created_at,
+                company_check_id=record["company_check_id"],
+            )
+        )
+    return summaries
+
+
+def _as_aware_utc(value: datetime | None) -> datetime | None:
+    """Treat naive timestamps as UTC and normalize aware values to UTC."""
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
 
 
 @dataclass(frozen=True)

@@ -722,6 +722,37 @@ def list_check_requests(limit: int = 50) -> list[dict]:
         session.close()
 
 
+def list_processing_check_request_records(
+    limit: int = 50,
+) -> list[dict]:
+    """List processing CheckRequest rows for reconciliation UI, newest first."""
+    if (
+        isinstance(limit, bool)
+        or not isinstance(limit, int)
+        or limit <= 0
+    ):
+        raise ValueError("limit must be a positive integer")
+
+    session = SessionLocal()
+    try:
+        records = (
+            session.query(CheckRequestRecord)
+            .filter(CheckRequestRecord.status == "processing")
+            .order_by(
+                CheckRequestRecord.processing_started_at.desc().nullslast(),
+                CheckRequestRecord.id.desc(),
+            )
+            .limit(limit)
+            .all()
+        )
+        return [
+            _check_request_record_to_dict(record)
+            for record in records
+        ]
+    finally:
+        session.close()
+
+
 def update_check_request_status(
     request_id: int,
     *,

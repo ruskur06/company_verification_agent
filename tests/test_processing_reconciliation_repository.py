@@ -17,7 +17,10 @@ from app.db.models import (
     SourceRecord,
     ToolCallRecord,
 )
-from app.db.repositories import get_processing_reconciliation_database_inspection
+from app.db.repositories import (
+    get_processing_reconciliation_database_inspection,
+    list_processing_check_request_records,
+)
 from app.schemas.check_request import CheckRequestStatus
 from app.schemas.processing_reconciliation import (
     ReconciliationConsistency,
@@ -516,3 +519,151 @@ def test_one_repository_call_creates_exactly_one_session(
 
     assert result is not None
     assert len(created) == 1
+
+
+def test_list_processing_invalid_limit_rejected_before_session(monkeypatch):
+    session_local = MagicMock(side_effect=AssertionError("SessionLocal"))
+    monkeypatch.setattr(
+        "app.db.repositories.SessionLocal",
+        session_local,
+    )
+    for invalid in [True, False, 0, -1, 1.5, "10", None]:
+        with pytest.raises(ValueError):
+            list_processing_check_request_records(limit=invalid)  # type: ignore[arg-type]
+    session_local.assert_not_called()
+
+
+def test_list_processing_only_processing_rows(sqlite_db):
+    processing_id = _insert_request(sqlite_db, status="processing")
+    _insert_request(
+        sqlite_db,
+        status="pending",
+        processing_check_id=None,
+        processing_started_at=None,
+        company_name="Pending Co",
+    )
+    _insert_request(
+        sqlite_db,
+        status="approved",
+        processing_check_id=None,
+        processing_started_at=None,
+        company_name="Approved Co",
+    )
+    _insert_request(
+        sqlite_db,
+        status="rejected",
+        processing_check_id=None,
+        processing_started_at=None,
+        company_name="Rejected Co",
+    )
+    _insert_request(
+        sqlite_db,
+        status="processed",
+        processing_check_id="999",
+        processing_started_at=STARTED_AT,
+        company_name="Processed Co",
+    )
+
+    rows = list_processing_check_request_records(limit=50)
+    assert [row["id"] for row in rows] == [processing_id]
+    assert rows[0]["status"] == "processing"
+
+
+def test_list_processing_ordering_and_limit(sqlite_db):
+    older = _insert_request(
+        sqlite_db,
+        processing_check_id="1001",
+        processing_started_at=datetime(2026, 7, 20, 10, 0, 0),
+        company_name="Older",
+    )
+    newer = _insert_request(
+        sqlite_db,
+        processing_check_id="1002",
+        processing_started_at=datetime(2026, 7, 20, 12, 0, 0),
+        company_name="Newer",
+    )
+    same_time_higher_id = _insert_request(
+        sqlite_db,
+        processing_check_id="1003",
+        processing_started_at=datetime(2026, 7, 20, 12, 0, 0),
+        company_name="SameTime",
+    )
+    null_lower_id = _insert_request(
+        sqlite_db,
+        processing_check_id=None,
+        processing_started_at=None,
+        company_name="NullStartedLower",
+    )
+    null_higher_id = _insert_request(
+        sqlite_db,
+        processing_check_id=None,
+        processing_started_at=None,
+        company_name="NullStartedHigher",
+    )
+
+    rows = list_processing_check_request_records(limit=50)
+    ids = [row["id"] for row in rows]
+    assert ids == [
+        same_time_higher_id,
+        newer,
+        older,
+        null_higher_id,
+        null_lower_id,
+    ]
+    assert ids.index(newer) < ids.index(null_higher_id)
+    assert ids.index(null_higher_id) < ids.index(null_lower_id)
+
+    limited = list_processing_check_request_records(limit=2)
+    assert [row["id"] for row in limited] == [same_time_higher_id, newer]
+    assert older not in [row["id"] for row in limited]
+
+
+def test_list_processing_one_session_no_mutation(sqlite_db, monkeypatch):
+    request_id = _insert_request(sqlite_db)
+    session_factory = sqlite_db
+    created: list[object] = []
+
+    def tracking_session_local():
+        session = session_factory()
+        created.append(session)
+        original_commit = session.commit
+        session.commit = MagicMock(
+            side_effect=AssertionError("commit forbidden")
+        )
+        session.flush = MagicMock(
+            side_effect=AssertionError("flush forbidden")
+        )
+        session._original_commit = original_commit
+        return session
+
+    monkeypatch.setattr(
+        "app.db.repositories.SessionLocal",
+        tracking_session_local,
+    )
+
+    before = session_factory()
+    try:
+        status_before = (
+            before.query(CheckRequestRecord)
+            .filter(CheckRequestRecord.id == request_id)
+            .one()
+            .status
+        )
+    finally:
+        before.close()
+
+    rows = list_processing_check_request_records(limit=10)
+    assert len(rows) == 1
+    assert len(created) == 1
+
+    after = session_factory()
+    try:
+        status_after = (
+            after.query(CheckRequestRecord)
+            .filter(CheckRequestRecord.id == request_id)
+            .one()
+            .status
+        )
+    finally:
+        after.close()
+    assert status_before == status_after == "processing"

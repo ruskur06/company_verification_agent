@@ -37,6 +37,12 @@ from app.services.company_check_service import (
     load_company_check,
     run_company_check,
 )
+from app.services.processing_reconciliation_service import (
+    PROCESSING_RECONCILIATION_STALE_AFTER,
+    ProcessingReconciliationRequestNotFoundError,
+    diagnose_processing_reconciliation,
+    list_processing_reconciliation_requests,
+)
 from app.services.public_request_guard import (
     PUBLIC_REQUEST_MAX_BODY_BYTES,
     PUBLIC_REQUEST_RATE_WINDOW_SECONDS,
@@ -450,6 +456,50 @@ def check_requests_list(request: Request) -> HTMLResponse:
         request=request,
         name="check_requests.html",
         context={"requests": check_requests},
+    )
+
+
+# TODO(security): internal routes require access control before further
+# internal functionality is added.
+@app.get("/internal/reconciliation", response_class=HTMLResponse)
+def processing_reconciliation_list(request: Request) -> HTMLResponse:
+    """Show read-only processing reconciliation request list."""
+    requests = list_processing_reconciliation_requests(limit=50)
+
+    return templates.TemplateResponse(
+        request=request,
+        name="reconciliation.html",
+        context={
+            "requests": requests,
+            "stale_after": PROCESSING_RECONCILIATION_STALE_AFTER,
+        },
+    )
+
+
+@app.get(
+    "/internal/reconciliation/{request_id}",
+    response_class=HTMLResponse,
+)
+def processing_reconciliation_detail(
+    request: Request,
+    request_id: int,
+) -> HTMLResponse:
+    """Show read-only advisory diagnosis for one processing request."""
+    try:
+        result = diagnose_processing_reconciliation(
+            request_id,
+            stale_after=PROCESSING_RECONCILIATION_STALE_AFTER,
+        )
+    except ProcessingReconciliationRequestNotFoundError as exc:
+        raise HTTPException(status_code=404) from exc
+
+    return templates.TemplateResponse(
+        request=request,
+        name="reconciliation_detail.html",
+        context={
+            "result": result,
+            "stale_after": PROCESSING_RECONCILIATION_STALE_AFTER,
+        },
     )
 
 

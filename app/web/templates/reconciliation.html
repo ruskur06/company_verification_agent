@@ -3,20 +3,25 @@
 <head>
     <meta charset="UTF-8">
     <meta name="robots" content="noindex, nofollow">
-    <title>Check Requests</title>
+    <title>Processing Reconciliation</title>
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
     <main class="container">
         <section class="card">
             <div class="top-row">
-                <h1>Check Requests</h1>
-                <a href="/internal/check" class="secondary-link">New check</a>
+                <h1>Processing Reconciliation</h1>
+                <a href="/internal/requests" class="secondary-link">
+                    Check requests
+                </a>
             </div>
 
             <p class="muted">
-                Read-only list of public check requests. Requests are not
-                started automatically.
+                Read-only advisory view of CheckRequest rows currently in
+                <code>processing</code> status. This page does not mutate
+                database state, finalize stuck requests, or clean up
+                artifacts. Authentication and access control are required
+                before deploying these internal pages.
             </p>
 
             {% if requests %}
@@ -26,11 +31,9 @@
                             <th>Request ID</th>
                             <th>Company</th>
                             <th>Country</th>
-                            <th>Email</th>
-                            <th>Language</th>
-                            <th>Transaction type</th>
+                            <th>Processing token</th>
+                            <th>Processing started at</th>
                             <th>Created at</th>
-                            <th>Status</th>
                             <th>Detail</th>
                         </tr>
                     </thead>
@@ -40,14 +43,12 @@
                                 <td>{{ item.id }}</td>
                                 <td>{{ item.company_name }}</td>
                                 <td>{{ item.country }}</td>
-                                <td>{{ item.email }}</td>
-                                <td>{{ item.preferred_language.value }}</td>
-                                <td>{{ item.transaction_type.value if item.transaction_type else "—" }}</td>
+                                <td>{{ item.processing_check_id if item.processing_check_id else "—" }}</td>
+                                <td>{{ item.processing_started_at if item.processing_started_at else "—" }}</td>
                                 <td>{{ item.created_at }}</td>
-                                <td>{{ item.status.value }}</td>
                                 <td>
-                                    <a href="/internal/requests/{{ item.id }}">
-                                        View request
+                                    <a href="/internal/reconciliation/{{ item.id }}">
+                                        View diagnosis
                                     </a>
                                 </td>
                             </tr>
@@ -55,11 +56,11 @@
                     </tbody>
                 </table>
             {% else %}
-                <p class="muted">No check requests found.</p>
+                <p class="muted">No processing requests found.</p>
             {% endif %}
 
             <div class="links">
-                <a href="/internal/reconciliation">Processing reconciliation</a>
+                <a href="/internal/requests">Back to check requests</a>
                 <a href="/internal/checks">View checks history</a>
             </div>
         </section>

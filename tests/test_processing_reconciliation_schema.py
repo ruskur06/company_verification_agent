@@ -14,6 +14,7 @@ from app.schemas.processing_reconciliation import (
     ProcessingReconciliationDiagnosis,
     ProcessingReconciliationDiagnosisError,
     ProcessingReconciliationFacts,
+    ProcessingReconciliationRequestSummary,
     ProcessingRequestFacts,
     ReconciliationArtifactFacts,
     ReconciliationClassification,
@@ -596,3 +597,65 @@ def test_snapshot_models_are_frozen_and_forbid_extra():
             database=ReconciliationDatabaseFacts(),
             unexpected="nope",
         )
+
+
+def test_request_summary_is_frozen_and_forbid_extra():
+    summary = ProcessingReconciliationRequestSummary(
+        id=1,
+        company_name="Example GmbH",
+        country="Austria",
+        processing_check_id="1782245999001",
+        processing_started_at=FIXED_STARTED_AT,
+        created_at=FIXED_DIAGNOSED_AT,
+        company_check_id=None,
+    )
+    assert summary.model_config["frozen"] is True
+    assert summary.model_config["extra"] == "forbid"
+    with pytest.raises(ValidationError):
+        ProcessingReconciliationRequestSummary(
+            id=1,
+            company_name="Example GmbH",
+            country="Austria",
+            processing_check_id="1782245999001",
+            processing_started_at=FIXED_STARTED_AT,
+            created_at=FIXED_DIAGNOSED_AT,
+            email="hidden@example.com",
+        )
+    with pytest.raises((TypeError, ValidationError)):
+        summary.company_name = "changed"
+
+
+def test_request_summary_allowlist_and_optional_fields():
+    summary = ProcessingReconciliationRequestSummary(
+        id=7,
+        company_name="Sparse Co",
+        country="Germany",
+        processing_check_id=None,
+        processing_started_at=None,
+        created_at=FIXED_DIAGNOSED_AT,
+        company_check_id=None,
+    )
+    assert set(ProcessingReconciliationRequestSummary.model_fields) == {
+        "id",
+        "company_name",
+        "country",
+        "processing_check_id",
+        "processing_started_at",
+        "created_at",
+        "company_check_id",
+    }
+    assert summary.processing_check_id is None
+    assert summary.processing_started_at is None
+    assert "email" not in ProcessingReconciliationRequestSummary.model_fields
+    assert "website" not in ProcessingReconciliationRequestSummary.model_fields
+    assert (
+        "additional_context"
+        not in ProcessingReconciliationRequestSummary.model_fields
+    )
+
+
+def test_check_request_response_has_no_processing_fields():
+    from app.schemas.check_request import CheckRequestResponse
+
+    assert "processing_check_id" not in CheckRequestResponse.model_fields
+    assert "processing_started_at" not in CheckRequestResponse.model_fields

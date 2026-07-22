@@ -18,6 +18,7 @@ from app.schemas.processing_reconciliation import (
     ProcessingReconciliationDatabaseInspection,
     ProcessingReconciliationDiagnosis,
     ProcessingReconciliationDiagnosisError,
+    ProcessingReconciliationRequestSummary,
     ProcessingRequestFacts,
     ReconciliationClassification,
     ReconciliationConsistency,
@@ -1178,3 +1179,71 @@ def test_no_filesystem_writes(monkeypatch, outputs_dirs):
     )
     write_text.assert_not_called()
     mkdir.assert_not_called()
+
+
+def test_list_processing_reconciliation_requests_validates_before_repo(
+    monkeypatch,
+):
+    repo = MagicMock(side_effect=AssertionError("repository must not run"))
+    monkeypatch.setattr(
+        service,
+        "list_processing_check_request_records",
+        repo,
+    )
+    for invalid in [True, False, 0, -1, "5", 1.5, None]:
+        with pytest.raises(ValueError):
+            service.list_processing_reconciliation_requests(
+                limit=invalid,  # type: ignore[arg-type]
+            )
+    repo.assert_not_called()
+
+
+def test_list_processing_reconciliation_requests_maps_once(monkeypatch):
+    started = datetime(2026, 7, 21, 12, 0, 0)
+    created = datetime(2026, 7, 21, 11, 0, 0)
+    repo = MagicMock(
+        return_value=[
+            {
+                "id": 9,
+                "company_name": "List Co",
+                "country": "Austria",
+                "email": "secret@example.com",
+                "website": "https://example.com",
+                "transaction_type": None,
+                "additional_context": "hidden",
+                "preferred_language": "en",
+                "status": "processing",
+                "company_check_id": None,
+                "processing_check_id": TOKEN,
+                "processing_started_at": started,
+                "created_at": created,
+            }
+        ]
+    )
+    diagnose = MagicMock(side_effect=AssertionError("diagnose forbidden"))
+    json_path = MagicMock(side_effect=AssertionError("fs forbidden"))
+    monkeypatch.setattr(
+        service,
+        "list_processing_check_request_records",
+        repo,
+    )
+    monkeypatch.setattr(
+        service,
+        "diagnose_processing_reconciliation",
+        diagnose,
+    )
+    monkeypatch.setattr(report_agent, "json_path_for_check", json_path)
+
+    rows = service.list_processing_reconciliation_requests(limit=50)
+    repo.assert_called_once_with(limit=50)
+    diagnose.assert_not_called()
+    json_path.assert_not_called()
+    assert len(rows) == 1
+    assert isinstance(rows[0], ProcessingReconciliationRequestSummary)
+    assert rows[0].id == 9
+    assert rows[0].processing_check_id == TOKEN
+    assert rows[0].processing_started_at == started.replace(
+        tzinfo=timezone.utc
+    )
+    assert rows[0].created_at == created.replace(tzinfo=timezone.utc)
+    assert not hasattr(rows[0], "email")
