@@ -1,13 +1,11 @@
 import json
 
 import pytest
-from fastapi.testclient import TestClient
 from sqlalchemy.orm import sessionmaker
 
 from app.agents.report_agent import json_path_for_check
 from app.db import database
 from app.db.repositories import save_company_check
-from app.main import app
 from app.schemas.company_check import CompanyCheckResult
 from app.schemas.risk import HumanReviewStatus, RiskLevel
 from tests.test_database import sample_check_result
@@ -40,11 +38,6 @@ def sqlite_db(tmp_path, monkeypatch):
     yield session_factory
 
     database.engine.dispose()
-
-
-@pytest.fixture()
-def client():
-    return TestClient(app)
 
 
 def _website_candidate_payload() -> dict:

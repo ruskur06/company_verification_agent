@@ -1,11 +1,9 @@
 import pytest
-from fastapi.testclient import TestClient
 from sqlalchemy.orm import sessionmaker
 
 from app.db import database
 from app.db.models import SourceRecord
 from app.db.repositories import CompanyCheckNotFoundError, add_source_to_company_check, save_company_check
-from app.main import app
 from tests.test_database import sample_check_result
 
 
@@ -80,9 +78,8 @@ def test_add_manual_source_raises_when_company_check_missing(sqlite_db):
         add_source_to_company_check("missing-check", _manual_source_payload())
 
 
-def test_add_manual_source_api_returns_created_source(sqlite_db):
+def test_add_manual_source_api_returns_created_source(sqlite_db, client):
     save_company_check(sample_check_result("1782245998764"))
-    client = TestClient(app)
 
     response = client.post(
         "/company-checks/1782245998764/sources",
@@ -100,9 +97,7 @@ def test_add_manual_source_api_returns_created_source(sqlite_db):
     assert body["relevance_score"] == 1.0
 
 
-def test_add_manual_source_api_returns_404_for_missing_company_check(sqlite_db):
-    client = TestClient(app)
-
+def test_add_manual_source_api_returns_404_for_missing_company_check(sqlite_db, client):
     response = client.post(
         "/company-checks/9999999999999/sources",
         json=_manual_source_payload(),

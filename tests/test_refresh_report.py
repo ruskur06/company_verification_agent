@@ -3,7 +3,6 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
-from fastapi.testclient import TestClient
 from sqlalchemy.orm import sessionmaker
 
 from app.agents.report_agent import json_path_for_check
@@ -16,7 +15,6 @@ from app.db.repositories import (
     get_sources_for_company_check,
     save_company_check,
 )
-from app.main import app
 from app.schemas.risk import BusinessRiskLevel, RiskLevel
 from app.schemas.source import RelevanceLevel
 from app.services.company_check_service import refresh_company_check_report
@@ -84,9 +82,7 @@ def _write_initial_json(check_id: str = CHECK_ID) -> None:
     path.write_text(json.dumps(data), encoding="utf-8")
 
 
-def test_refresh_report_endpoint_returns_404_for_missing_company_check(sqlite_db):
-    client = TestClient(app)
-
+def test_refresh_report_endpoint_returns_404_for_missing_company_check(sqlite_db, client):
     response = client.post("/company-checks/9999999999999/refresh-report")
 
     assert response.status_code == 404
@@ -146,11 +142,10 @@ def test_refresh_report_mock_only_keeps_low_confidence_high_verification_risk(sq
     assert response.json_result.risk.business_risk == BusinessRiskLevel.unknown
 
 
-def test_refresh_report_api_endpoint_exists(sqlite_db):
+def test_refresh_report_api_endpoint_exists(sqlite_db, client):
     _write_initial_json()
     save_company_check(sample_check_result(CHECK_ID))
     add_source_to_company_check(CHECK_ID, _manual_source_payload())
-    client = TestClient(app)
 
     response = client.post(f"/company-checks/{CHECK_ID}/refresh-report")
 

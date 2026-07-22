@@ -18,6 +18,7 @@ from app.services.check_request_service import (
     CheckRequestNotFoundError,
     InvalidCheckRequestTransitionError,
 )
+from tests.conftest import CsrfAuthenticatedClient
 
 
 REQUEST_ID = 42
@@ -30,6 +31,12 @@ def _persisted_result() -> PersistedApprovedRequestCheck:
         source_check_request_id=REQUEST_ID,
         company_check_id=COMPANY_CHECK_ID,
         status=CheckRequestStatus.processed,
+    )
+
+
+def _authenticated_client(**kwargs) -> CsrfAuthenticatedClient:
+    return CsrfAuthenticatedClient(
+        TestClient(app, base_url="https://testserver", **kwargs)
     )
 
 
@@ -90,12 +97,12 @@ def test_pipeline_or_validation_exception_is_server_error(
     monkeypatch.setattr("app.main.run_approved_request_check", orchestration)
 
     with pytest.raises(type(server_error)) as exc_info:
-        client = TestClient(app)
+        client = _authenticated_client()
         client.post(RUN_URL, follow_redirects=False)
 
     assert exc_info.value is server_error
 
-    no_raise_client = TestClient(app, raise_server_exceptions=False)
+    no_raise_client = _authenticated_client(raise_server_exceptions=False)
     response = no_raise_client.post(RUN_URL, follow_redirects=False)
 
     assert response.status_code == 500
@@ -113,12 +120,12 @@ def test_fencing_exception_is_server_error(monkeypatch):
     monkeypatch.setattr("app.main.run_approved_request_check", orchestration)
 
     with pytest.raises(ApprovedRequestPersistenceFenceError) as exc_info:
-        client = TestClient(app)
+        client = _authenticated_client()
         client.post(RUN_URL, follow_redirects=False)
 
     assert exc_info.value is fence_error
 
-    no_raise_client = TestClient(app, raise_server_exceptions=False)
+    no_raise_client = _authenticated_client(raise_server_exceptions=False)
     response = no_raise_client.post(RUN_URL, follow_redirects=False)
 
     assert response.status_code == 500

@@ -11,9 +11,12 @@
         <section class="card">
             <div class="top-row">
                 <h1>Processing Reconciliation</h1>
-                <a href="/internal/requests" class="secondary-link">
-                    Check requests
-                </a>
+                <div>
+                    <a href="/internal/requests" class="secondary-link">
+                        Check requests
+                    </a>
+                    {% include "partials/operator_logout.html" %}
+                </div>
             </div>
 
             <p class="muted">

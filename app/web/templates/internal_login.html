@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="robots" content="noindex, nofollow">
+    <title>Operator Login</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <main class="container">
+        <section class="card">
+            <h1>Operator Login</h1>
+            <p class="muted">
+                Sign in to access internal operator tools. Public company
+                check requests do not use this page.
+            </p>
+
+            {% if error %}
+                <p class="error">{{ error }}</p>
+            {% endif %}
+
+            <form action="/internal/login" method="post" class="form">
+                <label>
+                    Username
+                    <input type="text" name="username" required autocomplete="username">
+                </label>
+                <label>
+                    Password
+                    <input
+                        type="password"
+                        name="password"
+                        required
+                        autocomplete="current-password"
+                    >
+                </label>
+                <button type="submit">Sign in</button>
+            </form>
+        </section>
+    </main>
+</body>
+</html>

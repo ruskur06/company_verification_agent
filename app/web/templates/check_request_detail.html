@@ -11,7 +11,10 @@
         <section class="card">
             <div class="top-row">
                 <h1>Check Request Detail</h1>
-                <a href="/internal/requests" class="secondary-link">Back to requests</a>
+                <div>
+                    <a href="/internal/requests" class="secondary-link">Back to requests</a>
+                    {% include "partials/operator_logout.html" %}
+                </div>
             </div>
 
             <p class="muted">
@@ -105,6 +108,7 @@
                         method="post"
                         class="form"
                     >
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                         <button type="submit">Approve request</button>
                     </form>
                     <form
@@ -112,6 +116,7 @@
                         method="post"
                         class="form"
                     >
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                         <button type="submit">Reject request</button>
                     </form>
                 </section>
@@ -123,6 +128,7 @@
                         method="post"
                         class="form"
                     >
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                         <button type="submit">Run check</button>
                     </form>
                 </section>

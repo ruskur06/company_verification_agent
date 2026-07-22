@@ -257,8 +257,9 @@ def test_reconciliation_list_has_no_forms_and_noindex(sqlite_db, client):
     response = client.get("/internal/reconciliation")
     text = response.text
     assert response.status_code == 200
-    assert 'method="post"' not in text.lower()
-    assert "<form" not in text.lower()
+    assert text.lower().count('method="post"') == 1
+    assert 'action="/internal/logout"' in text
+    assert text.lower().count("<form") == 1
     assert 'content="noindex, nofollow"' in text
     assert 'href="/internal/requests"' in text
     assert 'href="/internal/checks"' in text
@@ -447,8 +448,9 @@ def test_reconciliation_detail_get_does_not_mutate_and_has_no_forms(
     response = client.get(f"/internal/reconciliation/{request_id}")
     text = response.text
     assert response.status_code == 200
-    assert 'method="post"' not in text.lower()
-    assert "<form" not in text.lower()
+    assert text.lower().count('method="post"') == 1
+    assert 'action="/internal/logout"' in text
+    assert text.lower().count("<form") == 1
     assert 'content="noindex, nofollow"' in text
     assert 'href="/internal/reconciliation"' in text
     assert 'href="/internal/requests"' in text

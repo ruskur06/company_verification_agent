@@ -1,7 +1,6 @@
 import json
 
 import pytest
-from fastapi.testclient import TestClient
 from sqlalchemy.orm import sessionmaker
 
 from app.agents.report_agent import ReportAgent, json_path_for_check
@@ -9,7 +8,6 @@ from app.agents.risk_agent import RiskAgent
 from app.db import database
 from app.db.models import CompanyCheckRecord, ReportRecord
 from app.db.repositories import CompanyCheckLockedError, get_company_check_by_id, save_company_check
-from app.main import app
 from app.schemas.company_check import CompanyCheckResult, RiskInfo
 from app.schemas.official_website_review import (
     OfficialWebsiteReview,
@@ -565,10 +563,9 @@ def test_ownership_signals_do_not_auto_confirm_official_website():
     assert result.requires_human_review is True
 
 
-def test_official_website_review_api_endpoint(sqlite_db):
+def test_official_website_review_api_endpoint(sqlite_db, client):
     _write_check_json()
     save_company_check(sample_check_result(CHECK_ID))
-    client = TestClient(app)
 
     response = client.post(
         f"/company-check/{CHECK_ID}/official-website-review",
@@ -581,9 +578,7 @@ def test_official_website_review_api_endpoint(sqlite_db):
     assert body["official_website_review"]["decision"] == "approved"
 
 
-def test_official_website_review_missing_check_returns_404(sqlite_db):
-    client = TestClient(app)
-
+def test_official_website_review_missing_check_returns_404(sqlite_db, client):
     response = client.post(
         "/company-check/9999999999999/official-website-review",
         json=_review_payload("approved"),
@@ -592,7 +587,7 @@ def test_official_website_review_missing_check_returns_404(sqlite_db):
     assert response.status_code == 404
 
 
-def test_official_website_review_without_candidate_returns_400(sqlite_db):
+def test_official_website_review_without_candidate_returns_400(sqlite_db, client):
     data = valid_company_check_data()
     data["check_id"] = int(CHECK_ID)
     path = json_path_for_check(int(CHECK_ID))
@@ -600,7 +595,6 @@ def test_official_website_review_without_candidate_returns_400(sqlite_db):
     path.write_text(json.dumps(data), encoding="utf-8")
     save_company_check(sample_check_result(CHECK_ID))
 
-    client = TestClient(app)
     response = client.post(
         f"/company-check/{CHECK_ID}/official-website-review",
         json=_review_payload("approved"),
