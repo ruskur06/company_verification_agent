@@ -192,8 +192,7 @@ def test_check_requests_page_is_read_only_without_actions(
     assert "approve" not in text
     assert "reject" not in text
     assert "run check" not in text
-    assert text.count('method="post"') == 1
-    assert 'action="/internal/logout"' in response.text
+    assert 'method="post"' not in text
 
 
 def test_check_requests_page_does_not_call_pipeline(

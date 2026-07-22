@@ -2,12 +2,14 @@ import json
 from pathlib import Path
 
 import pytest
+from fastapi.testclient import TestClient
 from pydantic import ValidationError
 from sqlalchemy.orm import sessionmaker
 
 from app.agents.report_agent import ReportAgent, json_path_for_check
 from app.db import database
 from app.db.repositories import get_company_check_by_id, save_company_check
+from app.main import app
 from app.schemas.company_check import CompanyCheckResult
 from app.schemas.final_risk_review import FinalRiskReviewCreate
 from app.schemas.human_review import ReviewDecision
@@ -373,8 +375,9 @@ def test_website_approval_does_not_finalize_risk(sqlite_db):
     assert saved.risk.final_level is None
 
 
-def test_final_risk_review_api_endpoint(sqlite_db, client):
+def test_final_risk_review_api_endpoint(sqlite_db):
     _persist_check()
+    client = TestClient(app)
 
     response = client.post(
         f"/company-check/{CHECK_ID}/final-risk-review",
@@ -401,7 +404,9 @@ def test_final_risk_review_api_endpoint(sqlite_db, client):
     assert db_record["human_review_status"] == "edited"
 
 
-def test_final_risk_review_missing_check_returns_404(sqlite_db, client):
+def test_final_risk_review_missing_check_returns_404(sqlite_db):
+    client = TestClient(app)
+
     response = client.post(
         "/company-check/9999999999999/final-risk-review",
         json=_review_payload(),
@@ -410,8 +415,9 @@ def test_final_risk_review_missing_check_returns_404(sqlite_db, client):
     assert response.status_code == 404
 
 
-def test_invalid_decision_returns_validation_error(sqlite_db, client):
+def test_invalid_decision_returns_validation_error(sqlite_db):
     _persist_check()
+    client = TestClient(app)
 
     response = client.post(
         f"/company-check/{CHECK_ID}/final-risk-review",

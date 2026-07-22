@@ -9,17 +9,13 @@
 <body>
     <main class="container">
         <section class="card">
-            <div class="top-row">
-                <h1>Company Verification Agent</h1>
-                {% include "partials/operator_logout.html" %}
-            </div>
+            <h1>Company Verification Agent</h1>
             <p class="muted">
                 Run a preliminary company check using local tools.
                 The result is not final until human review.
             </p>
 
             <form action="/internal/run-check" method="post" class="form">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                 <label>
                     Company name
                     <input

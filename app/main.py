@@ -18,11 +18,8 @@ from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
 
 from app.api.routes import router
-from app.core.config import InternalAuthSettings
 from app.db.database import init_db
 from app.schemas.check_request import CheckRequestCreate
-from app.security.internal_auth import InternalAuthService
-from app.security.internal_auth_middleware import InternalAuthMiddleware
 from app.services.approved_request_pipeline_service import (
     run_approved_request_check,
 )
@@ -59,10 +56,6 @@ STATIC_DIR = WEB_DIR / "static"
 TRANSLATIONS_DIR = WEB_DIR / "translations"
 SUPPORTED_PUBLIC_LANGUAGES = frozenset({"en", "de", "es"})
 
-# Fail closed at web-app import/startup when operator auth settings are missing.
-internal_auth_settings = InternalAuthSettings()
-internal_auth_service = InternalAuthService(internal_auth_settings)
-
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
@@ -77,11 +70,6 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-app.add_middleware(
-    InternalAuthMiddleware,
-    auth_service=internal_auth_service,
-)
-
 app.include_router(router)
 
 app.mount(
@@ -90,28 +78,7 @@ app.mount(
     name="static",
 )
 
-
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
-_original_template_response = templates.TemplateResponse
-
-
-def _template_response_with_csrf(*args, **kwargs):
-    """Inject csrf_token for authenticated operator templates."""
-    if args:
-        # Starlette supports positional request/name forms; normalize kwargs.
-        raise TypeError("TemplateResponse must be called with keyword arguments")
-    request = kwargs["request"]
-    context = dict(kwargs.get("context") or {})
-    session = getattr(request.state, "internal_session", None)
-    if "csrf_token" not in context:
-        context["csrf_token"] = (
-            session.csrf_token if session is not None else ""
-        )
-    kwargs["context"] = context
-    return _original_template_response(**kwargs)
-
-
-templates.TemplateResponse = _template_response_with_csrf  # type: ignore[method-assign]
 
 
 def _load_landing_copy(language: str) -> dict[str, str]:
@@ -440,67 +407,6 @@ def index(request: Request) -> HTMLResponse:
     )
 
 
-@app.get("/internal/login", response_class=HTMLResponse)
-def internal_login_page(request: Request) -> HTMLResponse:
-    """Render the operator login form."""
-    response = templates.TemplateResponse(
-        request=request,
-        name="internal_login.html",
-        context={"error": None},
-    )
-    response.headers["Cache-Control"] = "no-store"
-    return response
-
-
-@app.post("/internal/login", response_class=HTMLResponse)
-async def internal_login_submit(request: Request) -> HTMLResponse:
-    """Authenticate one operator and issue a signed session cookie."""
-    body = await request.body()
-    try:
-        form_data = parse_qs(body.decode("utf-8"), keep_blank_values=True)
-        username = form_data.get("username", [""])[0]
-        password = form_data.get("password", [""])[0]
-    except UnicodeDecodeError:
-        response = templates.TemplateResponse(
-            request=request,
-            name="internal_login.html",
-            context={"error": "Invalid username or password."},
-            status_code=400,
-        )
-        response.headers["Cache-Control"] = "no-store"
-        return response
-
-    if not internal_auth_service.verify_credentials(username, password):
-        response = templates.TemplateResponse(
-            request=request,
-            name="internal_login.html",
-            context={"error": "Invalid username or password."},
-            status_code=401,
-        )
-        response.headers["Cache-Control"] = "no-store"
-        return response
-
-    token, _session = internal_auth_service.create_session()
-    response = RedirectResponse(url="/internal/check", status_code=303)
-    internal_auth_service.apply_session_cookie(response, token)
-    response.headers["Cache-Control"] = "no-store"
-    return response
-
-
-@app.post("/internal/logout")
-def internal_logout() -> RedirectResponse:
-    """Clear the browser session cookie and return to login.
-
-    Limitation: logout deletes the browser cookie, but a copied stateless
-    token remains valid until expiry. Global invalidation requires rotating
-    INTERNAL_SESSION_SECRET_KEY.
-    """
-    response = RedirectResponse(url="/internal/login", status_code=303)
-    internal_auth_service.clear_session_cookie(response)
-    response.headers["Cache-Control"] = "no-store"
-    return response
-
-
 @app.post("/internal/run-check")
 async def run_check_from_form(request: Request) -> RedirectResponse:
     """Run company check from HTML form.
@@ -553,6 +459,8 @@ def check_requests_list(request: Request) -> HTMLResponse:
     )
 
 
+# TODO(security): internal routes require access control before further
+# internal functionality is added.
 @app.get("/internal/reconciliation", response_class=HTMLResponse)
 def processing_reconciliation_list(request: Request) -> HTMLResponse:
     """Show read-only processing reconciliation request list."""

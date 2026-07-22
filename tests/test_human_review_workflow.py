@@ -2,12 +2,14 @@ import json
 from pathlib import Path
 
 import pytest
+from fastapi.testclient import TestClient
 from sqlalchemy.orm import sessionmaker
 
 from app.agents.report_agent import json_path_for_check
 from app.db import database
 from app.db.models import HumanReviewRecord
 from app.db.repositories import CompanyCheckLockedError, create_human_review_record, get_human_reviews_for_company_check, save_company_check
+from app.main import app
 from tests.test_database import sample_check_result
 from tests.test_json_schema import valid_company_check_data
 from tests.test_manual_sources import _manual_source_payload
@@ -62,8 +64,9 @@ def _review_payload(**overrides) -> dict:
     return payload
 
 
-def test_submit_human_review_creates_record_and_returns_201(sqlite_db, client):
+def test_submit_human_review_creates_record_and_returns_201(sqlite_db):
     save_company_check(sample_check_result(CHECK_ID))
+    client = TestClient(app)
 
     response = client.post(
         f"/company-checks/{CHECK_ID}/human-review",
@@ -81,8 +84,9 @@ def test_submit_human_review_creates_record_and_returns_201(sqlite_db, client):
     assert body["is_locked"] is True
 
 
-def test_second_human_review_on_same_check_returns_409(sqlite_db, client):
+def test_second_human_review_on_same_check_returns_409(sqlite_db):
     save_company_check(sample_check_result(CHECK_ID))
+    client = TestClient(app)
 
     first = client.post(f"/company-checks/{CHECK_ID}/human-review", json=_review_payload())
     assert first.status_code == 201
@@ -95,9 +99,10 @@ def test_second_human_review_on_same_check_returns_409(sqlite_db, client):
     assert second.status_code == 409
 
 
-def test_refresh_report_after_human_review_lock_returns_409(sqlite_db, client):
+def test_refresh_report_after_human_review_lock_returns_409(sqlite_db):
     _write_initial_json()
     save_company_check(sample_check_result(CHECK_ID))
+    client = TestClient(app)
 
     review = client.post(f"/company-checks/{CHECK_ID}/human-review", json=_review_payload())
     assert review.status_code == 201
@@ -106,8 +111,9 @@ def test_refresh_report_after_human_review_lock_returns_409(sqlite_db, client):
     assert refresh.status_code == 409
 
 
-def test_add_manual_source_after_human_review_lock_returns_409(sqlite_db, client):
+def test_add_manual_source_after_human_review_lock_returns_409(sqlite_db):
     save_company_check(sample_check_result(CHECK_ID))
+    client = TestClient(app)
 
     review = client.post(f"/company-checks/{CHECK_ID}/human-review", json=_review_payload())
     assert review.status_code == 201
@@ -119,7 +125,9 @@ def test_add_manual_source_after_human_review_lock_returns_409(sqlite_db, client
     assert source.status_code == 409
 
 
-def test_human_review_missing_check_returns_404(sqlite_db, client):
+def test_human_review_missing_check_returns_404(sqlite_db):
+    client = TestClient(app)
+
     response = client.post(
         "/company-checks/9999999999999/human-review",
         json=_review_payload(),
@@ -128,8 +136,9 @@ def test_human_review_missing_check_returns_404(sqlite_db, client):
     assert response.status_code == 404
 
 
-def test_human_review_pending_decision_returns_422(sqlite_db, client):
+def test_human_review_pending_decision_returns_422(sqlite_db):
     save_company_check(sample_check_result(CHECK_ID))
+    client = TestClient(app)
 
     response = client.post(
         f"/company-checks/{CHECK_ID}/human-review",
@@ -139,9 +148,10 @@ def test_human_review_pending_decision_returns_422(sqlite_db, client):
     assert response.status_code == 422
 
 
-def test_human_review_overrides_roundtrip(sqlite_db, client):
+def test_human_review_overrides_roundtrip(sqlite_db):
     save_company_check(sample_check_result(CHECK_ID))
     overrides = {"registry_note": "FN 548828a confirmed manually"}
+    client = TestClient(app)
 
     response = client.post(
         f"/company-checks/{CHECK_ID}/human-review",
@@ -152,8 +162,9 @@ def test_human_review_overrides_roundtrip(sqlite_db, client):
     assert response.json()["overrides"] == overrides
 
 
-def test_human_review_records_are_append_only(sqlite_db, client):
+def test_human_review_records_are_append_only(sqlite_db):
     save_company_check(sample_check_result(CHECK_ID))
+    client = TestClient(app)
 
     first = client.post(f"/company-checks/{CHECK_ID}/human-review", json=_review_payload())
     assert first.status_code == 201

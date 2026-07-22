@@ -12,10 +12,7 @@
         <section class="card">
             <div class="top-row">
                 <h1>Company Check Result</h1>
-                <div>
-                    <a href="/internal/check" class="secondary-link">New check</a>
-                    {% include "partials/operator_logout.html" %}
-                </div>
+                <a href="/internal/check" class="secondary-link">New check</a>
             </div>
 
         {% if result is none %}
@@ -475,7 +472,6 @@
                         action="/company-check/{{ result.check_id }}/official-website-review/form"
                         class="review-form"
                     >
-                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                         <label for="decision">Decision</label>
                         <select name="decision" id="decision" required>
                             <option value="approved"
@@ -645,7 +641,6 @@
                     action="/company-check/{{ result.check_id }}/final-risk-review/form"
                     class="review-form"
                 >
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                     <label for="final_risk_decision">Decision</label>
                     <select name="final_risk_decision" id="final_risk_decision" required>
                         <option value="approved"
