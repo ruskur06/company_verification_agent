@@ -3,15 +3,19 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+from sqlalchemy import func, select
 
 from app.db.database import SessionLocal
 from app.db.models import (
     CheckRequestRecord,
     CompanyCheckRecord,
     HumanReviewRecord,
+    ReconciliationActionRecord,
     ReportRecord,
     SourceRecord,
     ToolCallRecord,
@@ -1191,3 +1195,252 @@ def get_processing_reconciliation_database_inspection(
         )
     finally:
         session.close()
+
+
+REQUIRED_RECONCILIATION_TOOL_CALLS: tuple[str, ...] = (
+    "web_search",
+    "domain_dns_check",
+    "registry_search",
+    "risk_score",
+)
+
+_RECONCILIATION_FINALIZE_ACTION = "finalize"
+_OUTCOME_FINALIZED = "finalized"
+_OUTCOME_ALREADY_PROCESSED = "already_processed"
+_OUTCOME_CONFLICT = "conflict"
+_OUTCOME_PRECONDITION_FAILED = "precondition_failed"
+
+
+class ProcessingReconciliationFinalizeRequestNotFoundError(LookupError):
+    """Raised when finalize is requested for a missing CheckRequest."""
+
+    def __init__(self, request_id: int) -> None:
+        self.request_id = request_id
+        super().__init__(
+            f"Check request {request_id} was not found for reconciliation "
+            f"finalize."
+        )
+
+
+@dataclass(frozen=True)
+class ProcessingReconciliationFinalizeResult:
+    """Result of one fenced reconciliation finalize attempt."""
+
+    outcome: str
+    request_id: int
+    expected_processing_check_id: str
+    audit_id: int
+
+
+def finalize_processing_reconciliation_request(
+    request_id: int,
+    *,
+    expected_processing_check_id: str,
+    actor_label: str,
+    diagnosis_snapshot_json: str,
+    operator_note: str | None = None,
+    artifact_json_sha256: str | None = None,
+    artifact_markdown_sha256: str | None = None,
+) -> ProcessingReconciliationFinalizeResult:
+    """Atomically finalize one processing request when evidence is complete.
+
+    The conditional UPDATE is the sole authority for mutation. Diagnosis
+    snapshot and artifact hashes are audit content only and never authorize
+    the transition.
+
+    True concurrent PostgreSQL overlapping transactions, MVCC visibility, and
+    contention behavior remain to be proven in Commit 10. SQLite sequential
+    tests do not prove those properties.
+    """
+    if (
+        isinstance(request_id, bool)
+        or not isinstance(request_id, int)
+        or request_id <= 0
+    ):
+        raise ValueError("request_id must be a positive integer")
+    if (
+        not isinstance(expected_processing_check_id, str)
+        or expected_processing_check_id.strip() == ""
+        or expected_processing_check_id.strip()
+        != expected_processing_check_id
+    ):
+        raise ValueError(
+            "expected_processing_check_id must be a non-blank string"
+        )
+    if (
+        not isinstance(actor_label, str)
+        or actor_label.strip() == ""
+        or actor_label.strip() != actor_label
+    ):
+        raise ValueError("actor_label must be a non-blank string")
+    if (
+        not isinstance(diagnosis_snapshot_json, str)
+        or diagnosis_snapshot_json.strip() == ""
+    ):
+        raise ValueError("diagnosis_snapshot_json must be a non-blank string")
+
+    token = expected_processing_check_id
+    session = SessionLocal()
+    try:
+        matching_company_check_count = (
+            select(func.count())
+            .select_from(CompanyCheckRecord)
+            .where(
+                CompanyCheckRecord.check_id == token,
+                CompanyCheckRecord.source_check_request_id == request_id,
+            )
+            .scalar_subquery()
+        )
+        report_count = (
+            select(func.count())
+            .select_from(ReportRecord)
+            .where(ReportRecord.check_id == token)
+            .scalar_subquery()
+        )
+        total_tool_count = (
+            select(func.count())
+            .select_from(ToolCallRecord)
+            .where(ToolCallRecord.check_id == token)
+            .scalar_subquery()
+        )
+
+        def _tool_name_count(tool_name: str):
+            return (
+                select(func.count())
+                .select_from(ToolCallRecord)
+                .where(
+                    ToolCallRecord.check_id == token,
+                    ToolCallRecord.tool_name == tool_name,
+                )
+                .scalar_subquery()
+            )
+
+        updated_rows = (
+            session.query(CheckRequestRecord)
+            .filter(
+                CheckRequestRecord.id == request_id,
+                CheckRequestRecord.status == "processing",
+                CheckRequestRecord.processing_check_id == token,
+                CheckRequestRecord.processing_started_at.is_not(None),
+                CheckRequestRecord.company_check_id.is_(None),
+                matching_company_check_count == 1,
+                report_count == 1,
+                total_tool_count == len(REQUIRED_RECONCILIATION_TOOL_CALLS),
+                *[
+                    _tool_name_count(tool_name) == 1
+                    for tool_name in REQUIRED_RECONCILIATION_TOOL_CALLS
+                ],
+            )
+            .update(
+                {
+                    "status": "processed",
+                    "company_check_id": token,
+                    "processing_check_id": None,
+                    "processing_started_at": None,
+                },
+                synchronize_session=False,
+            )
+        )
+
+        if updated_rows == 1:
+            audit = ReconciliationActionRecord(
+                check_request_id=request_id,
+                processing_check_id=token,
+                action=_RECONCILIATION_FINALIZE_ACTION,
+                outcome=_OUTCOME_FINALIZED,
+                diagnosis_snapshot_json=diagnosis_snapshot_json,
+                artifact_json_sha256=artifact_json_sha256,
+                artifact_markdown_sha256=artifact_markdown_sha256,
+                actor_label=actor_label,
+                operator_note=operator_note,
+            )
+            session.add(audit)
+            session.flush()
+            audit_id = audit.id
+            session.commit()
+            return ProcessingReconciliationFinalizeResult(
+                outcome=_OUTCOME_FINALIZED,
+                request_id=request_id,
+                expected_processing_check_id=token,
+                audit_id=audit_id,
+            )
+
+        if updated_rows != 0:
+            raise RuntimeError(
+                f"Unexpected finalize rowcount {updated_rows} for request "
+                f"{request_id}"
+            )
+
+        record = (
+            session.query(CheckRequestRecord)
+            .filter(CheckRequestRecord.id == request_id)
+            .one_or_none()
+        )
+        if record is None:
+            session.rollback()
+            raise ProcessingReconciliationFinalizeRequestNotFoundError(
+                request_id
+            )
+
+        outcome = _classify_zero_row_finalize_outcome(
+            record,
+            expected_processing_check_id=token,
+        )
+        audit = ReconciliationActionRecord(
+            check_request_id=request_id,
+            processing_check_id=token,
+            action=_RECONCILIATION_FINALIZE_ACTION,
+            outcome=outcome,
+            diagnosis_snapshot_json=diagnosis_snapshot_json,
+            artifact_json_sha256=artifact_json_sha256,
+            artifact_markdown_sha256=artifact_markdown_sha256,
+            actor_label=actor_label,
+            operator_note=operator_note,
+        )
+        session.add(audit)
+        session.flush()
+        audit_id = audit.id
+        session.commit()
+        return ProcessingReconciliationFinalizeResult(
+            outcome=outcome,
+            request_id=request_id,
+            expected_processing_check_id=token,
+            audit_id=audit_id,
+        )
+    except Exception:
+        try:
+            session.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        session.close()
+
+
+def _classify_zero_row_finalize_outcome(
+    record: CheckRequestRecord,
+    *,
+    expected_processing_check_id: str,
+) -> str:
+    """Classify a zero-mutation finalize attempt from fresh request facts."""
+    token = expected_processing_check_id
+    if (
+        record.status == "processed"
+        and record.company_check_id == token
+    ):
+        return _OUTCOME_ALREADY_PROCESSED
+
+    if record.status == "processing" and (
+        record.processing_check_id is not None
+        and record.processing_check_id != token
+    ):
+        return _OUTCOME_CONFLICT
+
+    if (
+        record.status == "processed"
+        and record.company_check_id is not None
+        and record.company_check_id != token
+    ):
+        return _OUTCOME_CONFLICT
+
+    return _OUTCOME_PRECONDITION_FAILED
