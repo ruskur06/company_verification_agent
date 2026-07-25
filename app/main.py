@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from urllib.parse import parse_qs
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, Form, HTTPException, Request
 from fastapi.responses import (
     HTMLResponse,
     PlainTextResponse,
@@ -40,7 +40,9 @@ from app.services.company_check_service import (
 from app.services.processing_reconciliation_service import (
     PROCESSING_RECONCILIATION_STALE_AFTER,
     ProcessingReconciliationRequestNotFoundError,
+    ProcessingReconciliationValidationError,
     diagnose_processing_reconciliation,
+    finalize_processing_reconciliation,
     list_processing_reconciliation_requests,
 )
 from app.services.public_request_guard import (
@@ -493,13 +495,70 @@ def processing_reconciliation_detail(
     except ProcessingReconciliationRequestNotFoundError as exc:
         raise HTTPException(status_code=404) from exc
 
+    outcome_param = request.query_params.get("outcome")
+    outcome_message = (
+        outcome_param
+        if outcome_param in {"conflict", "precondition_failed"}
+        else None
+    )
+
     return templates.TemplateResponse(
         request=request,
         name="reconciliation_detail.html",
         context={
             "result": result,
             "stale_after": PROCESSING_RECONCILIATION_STALE_AFTER,
+            "outcome_message": outcome_message,
         },
+    )
+
+
+# Deployment decision, 2026-07-25:
+# internal routes are reachable only through tailnet-only Tailscale Serve.
+# App-level CSRF protection is an accepted residual limitation for this
+# deployment and the route must not be exposed publicly.
+@app.post("/internal/reconciliation/{request_id}/finalize")
+def processing_reconciliation_finalize(
+    request_id: int,
+    expected_processing_check_id: str = Form(...),
+    operator_note: str | None = Form(None),
+) -> RedirectResponse:
+    """Finalize one processing request after fresh service verification."""
+    try:
+        result = finalize_processing_reconciliation(
+            request_id,
+            expected_processing_check_id=expected_processing_check_id,
+            operator_note=operator_note,
+        )
+    except ProcessingReconciliationRequestNotFoundError as exc:
+        raise HTTPException(status_code=404) from exc
+    except ProcessingReconciliationValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    token = result.expected_processing_check_id
+    if result.outcome in {"finalized", "already_processed"}:
+        return RedirectResponse(
+            url=f"/internal/result/{token}",
+            status_code=303,
+        )
+    if result.outcome == "conflict":
+        return RedirectResponse(
+            url=(
+                f"/internal/reconciliation/{request_id}"
+                "?outcome=conflict"
+            ),
+            status_code=303,
+        )
+    if result.outcome == "precondition_failed":
+        return RedirectResponse(
+            url=(
+                f"/internal/reconciliation/{request_id}"
+                "?outcome=precondition_failed"
+            ),
+            status_code=303,
+        )
+    raise RuntimeError(
+        f"Unexpected reconciliation finalize outcome: {result.outcome!r}"
     )
 
 

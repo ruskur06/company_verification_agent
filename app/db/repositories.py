@@ -26,6 +26,7 @@ from app.schemas.processing_reconciliation import (
     ReconciliationCompanyCheckSnapshot,
     ReconciliationDatabaseFacts,
     ReconciliationReportSnapshot,
+    is_canonical_processing_check_id,
 )
 
 
@@ -1039,6 +1040,146 @@ def _normalize_optional_check_id(value: str | None) -> str | None:
     return normalized or None
 
 
+def _processing_request_facts_from_record(
+    record: CheckRequestRecord,
+) -> ProcessingRequestFacts:
+    """Build classifier-facing request facts from one CheckRequest row."""
+    return ProcessingRequestFacts(
+        request_id=record.id,
+        status=record.status,
+        company_check_id=_normalize_optional_check_id(
+            record.company_check_id
+        ),
+        processing_check_id=_normalize_optional_check_id(
+            record.processing_check_id
+        ),
+        processing_started_at=_as_aware_utc(
+            record.processing_started_at
+        ),
+    )
+
+
+def _build_processing_reconciliation_database_inspection(
+    session,
+    *,
+    request_facts: ProcessingRequestFacts,
+    token: str,
+) -> ProcessingReconciliationDatabaseInspection:
+    """Load token-scoped DB evidence for an already-open session.
+
+    Does not open nested sessions. The token may be non-canonical when called
+    from the legacy GET inspection path; callers that require a canonical
+    token must validate before invoking this helper.
+    """
+    request_id = request_facts.request_id
+
+    company_check_rows = (
+        session.query(CompanyCheckRecord)
+        .filter(CompanyCheckRecord.check_id == token)
+        .order_by(CompanyCheckRecord.id.asc())
+        .all()
+    )
+    token_company_checks = tuple(
+        ReconciliationCompanyCheckSnapshot(
+            record_id=row.id,
+            check_id=row.check_id,
+            source_check_request_id=row.source_check_request_id,
+            json_report_path=row.json_report_path,
+            markdown_report_path=row.markdown_report_path,
+        )
+        for row in company_check_rows
+    )
+    # Malformed raw source_check_request_id values remain in
+    # token_company_checks; the classifier-facing facts schema
+    # supports only positive IDs or None.
+    matching_source_ids: list[int | None] = []
+    for row in company_check_rows:
+        source_id = row.source_check_request_id
+        if (
+            isinstance(source_id, int)
+            and not isinstance(source_id, bool)
+            and source_id > 0
+        ):
+            matching_source_ids.append(source_id)
+        else:
+            matching_source_ids.append(None)
+
+    foreign_rows = (
+        session.query(CheckRequestRecord.id)
+        .filter(
+            CheckRequestRecord.processing_check_id == token,
+            CheckRequestRecord.id != request_id,
+        )
+        .order_by(CheckRequestRecord.id.asc())
+        .all()
+    )
+    foreign_processing_token_request_ids = tuple(
+        row_id for (row_id,) in foreign_rows
+    )
+
+    source_record_count = (
+        session.query(SourceRecord)
+        .filter(SourceRecord.check_id == token)
+        .count()
+    )
+
+    tool_call_rows = (
+        session.query(ToolCallRecord)
+        .filter(ToolCallRecord.check_id == token)
+        .order_by(ToolCallRecord.id.asc())
+        .all()
+    )
+    tool_call_names = tuple(row.tool_name for row in tool_call_rows)
+
+    report_rows = (
+        session.query(ReportRecord)
+        .filter(ReportRecord.check_id == token)
+        .order_by(ReportRecord.id.asc())
+        .all()
+    )
+    token_report_records = tuple(
+        ReconciliationReportSnapshot(
+            record_id=row.id,
+            check_id=row.check_id,
+            json_path=row.json_path,
+            markdown_path=row.markdown_path,
+            json_content=row.json_content,
+            markdown_content=row.markdown_content,
+        )
+        for row in report_rows
+    )
+
+    has_token_company_check = bool(token_company_checks)
+    if has_token_company_check:
+        orphan_source_record_count = 0
+        orphan_tool_call_record_count = 0
+        orphan_report_record_count = 0
+    else:
+        orphan_source_record_count = source_record_count
+        orphan_tool_call_record_count = len(tool_call_names)
+        orphan_report_record_count = len(token_report_records)
+
+    return ProcessingReconciliationDatabaseInspection(
+        request=request_facts,
+        database=ReconciliationDatabaseFacts(
+            matching_company_check_source_request_ids=tuple(
+                matching_source_ids
+            ),
+            foreign_processing_token_request_ids=(
+                foreign_processing_token_request_ids
+            ),
+            source_record_count=source_record_count,
+            tool_call_names=tool_call_names,
+            report_record_count=len(token_report_records),
+            orphan_source_record_count=orphan_source_record_count,
+            orphan_tool_call_record_count=orphan_tool_call_record_count,
+            orphan_report_record_count=orphan_report_record_count,
+        ),
+        token_company_checks=token_company_checks,
+        token_report_records=token_report_records,
+    )
+
+
 def get_processing_reconciliation_database_inspection(
     request_id: int,
 ) -> ProcessingReconciliationDatabaseInspection | None:
@@ -1065,20 +1206,7 @@ def get_processing_reconciliation_database_inspection(
         if record is None:
             return None
 
-        request_facts = ProcessingRequestFacts(
-            request_id=record.id,
-            status=record.status,
-            company_check_id=_normalize_optional_check_id(
-                record.company_check_id
-            ),
-            processing_check_id=_normalize_optional_check_id(
-                record.processing_check_id
-            ),
-            processing_started_at=_as_aware_utc(
-                record.processing_started_at
-            ),
-        )
-
+        request_facts = _processing_request_facts_from_record(record)
         token = request_facts.processing_check_id
         if token is None:
             return ProcessingReconciliationDatabaseInspection(
@@ -1088,110 +1216,56 @@ def get_processing_reconciliation_database_inspection(
                 token_report_records=(),
             )
 
-        company_check_rows = (
-            session.query(CompanyCheckRecord)
-            .filter(CompanyCheckRecord.check_id == token)
-            .order_by(CompanyCheckRecord.id.asc())
-            .all()
+        return _build_processing_reconciliation_database_inspection(
+            session,
+            request_facts=request_facts,
+            token=token,
         )
-        token_company_checks = tuple(
-            ReconciliationCompanyCheckSnapshot(
-                record_id=row.id,
-                check_id=row.check_id,
-                source_check_request_id=row.source_check_request_id,
-                json_report_path=row.json_report_path,
-                markdown_report_path=row.markdown_report_path,
-            )
-            for row in company_check_rows
-        )
-        # Malformed raw source_check_request_id values remain in
-        # token_company_checks; the classifier-facing facts schema
-        # supports only positive IDs or None.
-        matching_source_ids: list[int | None] = []
-        for row in company_check_rows:
-            source_id = row.source_check_request_id
-            if (
-                isinstance(source_id, int)
-                and not isinstance(source_id, bool)
-                and source_id > 0
-            ):
-                matching_source_ids.append(source_id)
-            else:
-                matching_source_ids.append(None)
+    finally:
+        session.close()
 
-        foreign_rows = (
-            session.query(CheckRequestRecord.id)
-            .filter(
-                CheckRequestRecord.processing_check_id == token,
-                CheckRequestRecord.id != request_id,
-            )
-            .order_by(CheckRequestRecord.id.asc())
-            .all()
-        )
-        foreign_processing_token_request_ids = tuple(
-            row_id for (row_id,) in foreign_rows
+
+def get_processing_reconciliation_database_inspection_for_token(
+    request_id: int,
+    expected_processing_check_id: str,
+) -> ProcessingReconciliationDatabaseInspection | None:
+    """Inspect DB evidence for an explicit canonical processing token.
+
+    Unlike get_processing_reconciliation_database_inspection, the inspection
+    token is never derived from record.processing_check_id. This supports
+    already-processed rows where company_check_id holds the token and
+    processing_check_id is NULL.
+    """
+    if (
+        isinstance(request_id, bool)
+        or not isinstance(request_id, int)
+        or request_id <= 0
+    ):
+        raise ValueError("request_id must be a positive integer")
+    if (
+        not isinstance(expected_processing_check_id, str)
+        or not is_canonical_processing_check_id(expected_processing_check_id)
+    ):
+        raise ValueError(
+            "expected_processing_check_id must be a canonical processing "
+            "check id"
         )
 
-        source_record_count = (
-            session.query(SourceRecord)
-            .filter(SourceRecord.check_id == token)
-            .count()
+    session = SessionLocal()
+    try:
+        record = (
+            session.query(CheckRequestRecord)
+            .filter(CheckRequestRecord.id == request_id)
+            .one_or_none()
         )
+        if record is None:
+            return None
 
-        tool_call_rows = (
-            session.query(ToolCallRecord)
-            .filter(ToolCallRecord.check_id == token)
-            .order_by(ToolCallRecord.id.asc())
-            .all()
-        )
-        tool_call_names = tuple(row.tool_name for row in tool_call_rows)
-
-        report_rows = (
-            session.query(ReportRecord)
-            .filter(ReportRecord.check_id == token)
-            .order_by(ReportRecord.id.asc())
-            .all()
-        )
-        token_report_records = tuple(
-            ReconciliationReportSnapshot(
-                record_id=row.id,
-                check_id=row.check_id,
-                json_path=row.json_path,
-                markdown_path=row.markdown_path,
-                json_content=row.json_content,
-                markdown_content=row.markdown_content,
-            )
-            for row in report_rows
-        )
-
-        has_token_company_check = bool(token_company_checks)
-        if has_token_company_check:
-            orphan_source_record_count = 0
-            orphan_tool_call_record_count = 0
-            orphan_report_record_count = 0
-        else:
-            orphan_source_record_count = source_record_count
-            orphan_tool_call_record_count = len(tool_call_names)
-            orphan_report_record_count = len(token_report_records)
-
-        return ProcessingReconciliationDatabaseInspection(
-            request=request_facts,
-            database=ReconciliationDatabaseFacts(
-                matching_company_check_source_request_ids=tuple(
-                    matching_source_ids
-                ),
-                foreign_processing_token_request_ids=(
-                    foreign_processing_token_request_ids
-                ),
-                source_record_count=source_record_count,
-                tool_call_names=tool_call_names,
-                report_record_count=len(token_report_records),
-                orphan_source_record_count=orphan_source_record_count,
-                orphan_tool_call_record_count=orphan_tool_call_record_count,
-                orphan_report_record_count=orphan_report_record_count,
-            ),
-            token_company_checks=token_company_checks,
-            token_report_records=token_report_records,
+        request_facts = _processing_request_facts_from_record(record)
+        return _build_processing_reconciliation_database_inspection(
+            session,
+            request_facts=request_facts,
+            token=expected_processing_check_id,
         )
     finally:
         session.close()
@@ -1232,26 +1306,14 @@ class ProcessingReconciliationFinalizeResult:
     audit_id: int
 
 
-def finalize_processing_reconciliation_request(
+def _validate_reconciliation_finalize_inputs(
     request_id: int,
     *,
     expected_processing_check_id: str,
     actor_label: str,
     diagnosis_snapshot_json: str,
-    operator_note: str | None = None,
-    artifact_json_sha256: str | None = None,
-    artifact_markdown_sha256: str | None = None,
-) -> ProcessingReconciliationFinalizeResult:
-    """Atomically finalize one processing request when evidence is complete.
-
-    The conditional UPDATE is the sole authority for mutation. Diagnosis
-    snapshot and artifact hashes are audit content only and never authorize
-    the transition.
-
-    True concurrent PostgreSQL overlapping transactions, MVCC visibility, and
-    contention behavior remain to be proven in Commit 10. SQLite sequential
-    tests do not prove those properties.
-    """
+) -> None:
+    """Shared input checks for finalize and audit-only paths."""
     if (
         isinstance(request_id, bool)
         or not isinstance(request_id, int)
@@ -1278,6 +1340,34 @@ def finalize_processing_reconciliation_request(
         or diagnosis_snapshot_json.strip() == ""
     ):
         raise ValueError("diagnosis_snapshot_json must be a non-blank string")
+
+
+def finalize_processing_reconciliation_request(
+    request_id: int,
+    *,
+    expected_processing_check_id: str,
+    actor_label: str,
+    diagnosis_snapshot_json: str,
+    operator_note: str | None = None,
+    artifact_json_sha256: str | None = None,
+    artifact_markdown_sha256: str | None = None,
+) -> ProcessingReconciliationFinalizeResult:
+    """Atomically finalize one processing request when evidence is complete.
+
+    The conditional UPDATE is the sole authority for mutation. Diagnosis
+    snapshot and artifact hashes are audit content only and never authorize
+    the transition.
+
+    True concurrent PostgreSQL overlapping transactions, MVCC visibility, and
+    contention behavior remain to be proven in Commit 10. SQLite sequential
+    tests do not prove those properties.
+    """
+    _validate_reconciliation_finalize_inputs(
+        request_id,
+        expected_processing_check_id=expected_processing_check_id,
+        actor_label=actor_label,
+        diagnosis_snapshot_json=diagnosis_snapshot_json,
+    )
 
     token = expected_processing_check_id
     session = SessionLocal()
@@ -1383,7 +1473,9 @@ def finalize_processing_reconciliation_request(
             )
 
         outcome = _classify_zero_row_finalize_outcome(
+            session,
             record,
+            request_id=request_id,
             expected_processing_check_id=token,
         )
         audit = ReconciliationActionRecord(
@@ -1417,18 +1509,217 @@ def finalize_processing_reconciliation_request(
         session.close()
 
 
+def record_processing_reconciliation_audit_only(
+    request_id: int,
+    *,
+    expected_processing_check_id: str,
+    outcome: str,
+    actor_label: str,
+    diagnosis_snapshot_json: str,
+    operator_note: str | None = None,
+    artifact_json_sha256: str | None = None,
+    artifact_markdown_sha256: str | None = None,
+) -> ProcessingReconciliationFinalizeResult:
+    """Persist a finalize audit row without mutating CheckRequest state.
+
+    Accepts only conflict and precondition_failed outcomes. Never updates
+    CheckRequestRecord or any table other than inserting one
+    ReconciliationActionRecord with action="finalize".
+    """
+    _validate_reconciliation_finalize_inputs(
+        request_id,
+        expected_processing_check_id=expected_processing_check_id,
+        actor_label=actor_label,
+        diagnosis_snapshot_json=diagnosis_snapshot_json,
+    )
+    if (
+        not isinstance(outcome, str)
+        or outcome
+        not in (_OUTCOME_CONFLICT, _OUTCOME_PRECONDITION_FAILED)
+    ):
+        raise ValueError(
+            "outcome must be conflict or precondition_failed; "
+            "finalized, already_processed, unknown, blank, and malformed "
+            "outcomes are rejected"
+        )
+
+    token = expected_processing_check_id
+    session = SessionLocal()
+    try:
+        record = (
+            session.query(CheckRequestRecord)
+            .filter(CheckRequestRecord.id == request_id)
+            .one_or_none()
+        )
+        if record is None:
+            raise ProcessingReconciliationFinalizeRequestNotFoundError(
+                request_id
+            )
+
+        audit = ReconciliationActionRecord(
+            check_request_id=request_id,
+            processing_check_id=token,
+            action=_RECONCILIATION_FINALIZE_ACTION,
+            outcome=outcome,
+            diagnosis_snapshot_json=diagnosis_snapshot_json,
+            artifact_json_sha256=artifact_json_sha256,
+            artifact_markdown_sha256=artifact_markdown_sha256,
+            actor_label=actor_label,
+            operator_note=operator_note,
+        )
+        session.add(audit)
+        session.flush()
+        audit_id = audit.id
+        session.commit()
+        return ProcessingReconciliationFinalizeResult(
+            outcome=outcome,
+            request_id=request_id,
+            expected_processing_check_id=token,
+            audit_id=audit_id,
+        )
+    except Exception:
+        try:
+            session.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        session.close()
+
+
+def _has_foreign_processing_token_owner(
+    session,
+    *,
+    request_id: int,
+    token: str,
+) -> bool:
+    """Return True when another request holds processing_check_id == token."""
+    foreign_processing_count = (
+        session.query(CheckRequestRecord)
+        .filter(
+            CheckRequestRecord.processing_check_id == token,
+            CheckRequestRecord.id != request_id,
+        )
+        .count()
+    )
+    return foreign_processing_count > 0
+
+
+def _has_foreign_company_check_source(
+    session,
+    *,
+    request_id: int,
+    token: str,
+) -> bool:
+    """Return True when token company check points at another request."""
+    source_rows = (
+        session.query(CompanyCheckRecord.source_check_request_id)
+        .filter(CompanyCheckRecord.check_id == token)
+        .all()
+    )
+    for (source_id,) in source_rows:
+        if (
+            isinstance(source_id, int)
+            and not isinstance(source_id, bool)
+            and source_id > 0
+            and source_id != request_id
+        ):
+            return True
+    return False
+
+
+def _has_complete_already_processed_db_evidence(
+    session,
+    *,
+    request_id: int,
+    token: str,
+) -> bool:
+    """Return True when already-processed status has complete DB evidence."""
+    matching_company_check_count = (
+        session.query(CompanyCheckRecord)
+        .filter(
+            CompanyCheckRecord.check_id == token,
+            CompanyCheckRecord.source_check_request_id == request_id,
+        )
+        .count()
+    )
+    if matching_company_check_count != 1:
+        return False
+
+    total_company_check_count = (
+        session.query(CompanyCheckRecord)
+        .filter(CompanyCheckRecord.check_id == token)
+        .count()
+    )
+    if total_company_check_count != 1:
+        return False
+
+    report_count = (
+        session.query(ReportRecord)
+        .filter(ReportRecord.check_id == token)
+        .count()
+    )
+    if report_count != 1:
+        return False
+
+    total_tool_count = (
+        session.query(ToolCallRecord)
+        .filter(ToolCallRecord.check_id == token)
+        .count()
+    )
+    if total_tool_count != len(REQUIRED_RECONCILIATION_TOOL_CALLS):
+        return False
+
+    for tool_name in REQUIRED_RECONCILIATION_TOOL_CALLS:
+        tool_count = (
+            session.query(ToolCallRecord)
+            .filter(
+                ToolCallRecord.check_id == token,
+                ToolCallRecord.tool_name == tool_name,
+            )
+            .count()
+        )
+        if tool_count != 1:
+            return False
+
+    return True
+
+
 def _classify_zero_row_finalize_outcome(
+    session,
     record: CheckRequestRecord,
     *,
+    request_id: int,
     expected_processing_check_id: str,
 ) -> str:
     """Classify a zero-mutation finalize attempt from fresh request facts."""
     token = expected_processing_check_id
+    if _has_foreign_processing_token_owner(
+        session,
+        request_id=request_id,
+        token=token,
+    ) or _has_foreign_company_check_source(
+        session,
+        request_id=request_id,
+        token=token,
+    ):
+        return _OUTCOME_CONFLICT
+
     if (
         record.status == "processed"
         and record.company_check_id == token
     ):
-        return _OUTCOME_ALREADY_PROCESSED
+        if (
+            record.processing_check_id is None
+            and record.processing_started_at is None
+            and _has_complete_already_processed_db_evidence(
+                session,
+                request_id=request_id,
+                token=token,
+            )
+        ):
+            return _OUTCOME_ALREADY_PROCESSED
+        return _OUTCOME_PRECONDITION_FAILED
 
     if record.status == "processing" and (
         record.processing_check_id is not None

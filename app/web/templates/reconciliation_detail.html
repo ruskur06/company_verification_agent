@@ -17,11 +17,23 @@
             </div>
 
             <p class="muted">
-                Read-only advisory diagnosis. This page does not mutate
-                database state, finalize stuck requests, retry pipelines,
-                or clean up artifacts. Authentication and access control
-                are required before deploying these internal pages.
+                Internal tailnet-only operator page. GET diagnosis remains
+                advisory and non-mutating. POST always performs fresh
+                verification. Finalization never retries the pipeline or
+                deletes artifacts.
             </p>
+
+            {% if outcome_message == "conflict" %}
+                <p class="muted">
+                    Finalization did not proceed: another processing attempt
+                    or result currently owns this request.
+                </p>
+            {% elif outcome_message == "precondition_failed" %}
+                <p class="muted">
+                    Finalization did not proceed: current evidence does not
+                    satisfy finalize preconditions.
+                </p>
+            {% endif %}
 
             <p>
                 Stale threshold:
@@ -64,6 +76,31 @@
                     </ul>
                 {% else %}
                     <p class="muted">No inconsistency reasons.</p>
+                {% endif %}
+
+                {% if result.classification.value == "stale_persisted_complete" and result.processing_check_id %}
+                    <h3>Finalize</h3>
+                    <p class="muted">
+                        Form visibility is advisory only. POST re-verifies all
+                        database and filesystem facts before any mutation.
+                    </p>
+                    <form
+                        method="post"
+                        action="/internal/reconciliation/{{ result.request_id }}/finalize"
+                    >
+                        <input
+                            type="hidden"
+                            name="expected_processing_check_id"
+                            value="{{ result.processing_check_id }}"
+                        >
+                        <label for="operator_note">Operator note (optional)</label>
+                        <textarea
+                            id="operator_note"
+                            name="operator_note"
+                            rows="3"
+                        ></textarea>
+                        <button type="submit">Finalize request</button>
+                    </form>
                 {% endif %}
             {% else %}
                 <h2>Diagnosis error</h2>

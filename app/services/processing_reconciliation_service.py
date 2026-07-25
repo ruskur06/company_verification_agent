@@ -1,10 +1,11 @@
-"""Read-only processing-request reconciliation diagnosis service."""
+"""Processing-request reconciliation diagnosis and finalize service."""
 
 from __future__ import annotations
 
 import hashlib
 import json
 import stat
+from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -14,17 +15,28 @@ from sqlalchemy.exc import SQLAlchemyError
 
 import app.agents.report_agent as report_agent
 from app.db.repositories import (
+    REQUIRED_RECONCILIATION_TOOL_CALLS,
+    ProcessingReconciliationFinalizeRequestNotFoundError,
+    ProcessingReconciliationFinalizeResult,
+    finalize_processing_reconciliation_request,
     get_processing_reconciliation_database_inspection,
+    get_processing_reconciliation_database_inspection_for_token,
     list_processing_check_request_records,
+    record_processing_reconciliation_audit_only,
 )
+from app.db.models import ReconciliationActionRecord
+from app.schemas.check_request import CheckRequestStatus
 from app.schemas.processing_reconciliation import (
     ArtifactFileFacts,
     JsonArtifactFacts,
+    ProcessingReconciliationDiagnosis,
     ProcessingReconciliationDiagnosisError,
     ProcessingReconciliationFacts,
     ProcessingReconciliationRequestSummary,
     ProcessingReconciliationResult,
+    ProcessingRequestFacts,
     ReconciliationArtifactFacts,
+    ReconciliationClassification,
     ReconciliationConsistency,
     ReconciliationDatabaseFacts,
     ReconciliationDiagnosisErrorReason,
@@ -37,6 +49,7 @@ from app.services.processing_reconciliation_classifier import (
 
 
 PROCESSING_RECONCILIATION_STALE_AFTER = timedelta(minutes=30)
+PROCESSING_RECONCILIATION_ACTOR_LABEL = "internal-unauthenticated"
 
 
 class ProcessingReconciliationRequestNotFoundError(LookupError):
@@ -48,6 +61,12 @@ class ProcessingReconciliationRequestNotFoundError(LookupError):
             f"Check request {request_id} was not found for reconciliation "
             f"diagnosis."
         )
+
+
+class ProcessingReconciliationValidationError(ValueError):
+    """Raised for known finalize input validation failures."""
+
+    pass
 
 
 def list_processing_reconciliation_requests(
@@ -536,3 +555,362 @@ def _with_report_consistency(
             ),
         }
     )
+
+
+@dataclass(frozen=True)
+class _PreparedFinalization:
+    """Immutable prepared finalization snapshot for one POST attempt."""
+
+    request_id: int
+    expected_processing_check_id: str
+    request: ProcessingRequestFacts
+    database: ReconciliationDatabaseFacts
+    diagnosis: ProcessingReconciliationDiagnosis
+    json_snapshot: _JsonArtifactInspectionSnapshot
+    markdown_snapshot: _ArtifactInspectionSnapshot
+    artifact_json_sha256: str | None
+    artifact_markdown_sha256: str | None
+    diagnosis_snapshot_json: str
+
+
+def finalize_processing_reconciliation(
+    request_id: int,
+    *,
+    expected_processing_check_id: str,
+    operator_note: str | None = None,
+) -> ProcessingReconciliationFinalizeResult:
+    """Freshly verify and finalize one processing reconciliation request."""
+    validated_request_id = _validate_finalize_request_id(request_id)
+    token = _validate_finalize_expected_token(expected_processing_check_id)
+    note = _normalize_operator_note(operator_note)
+
+    prepared = _prepare_finalization(
+        validated_request_id,
+        expected_processing_check_id=token,
+    )
+
+    try:
+        if _is_candidate_new_finalization(prepared):
+            # The filesystem can change between the service read and the
+            # database UPDATE. This is an explicitly accepted residual race
+            # for the current single-operator, tailnet-only deployment. The
+            # fenced UPDATE still protects DB ownership and DB evidence.
+            return finalize_processing_reconciliation_request(
+                prepared.request_id,
+                expected_processing_check_id=prepared.expected_processing_check_id,
+                actor_label=PROCESSING_RECONCILIATION_ACTOR_LABEL,
+                diagnosis_snapshot_json=prepared.diagnosis_snapshot_json,
+                operator_note=note,
+                artifact_json_sha256=prepared.artifact_json_sha256,
+                artifact_markdown_sha256=prepared.artifact_markdown_sha256,
+            )
+
+        if _is_candidate_already_processed(prepared):
+            # The filesystem can change between the service read and the
+            # database UPDATE. This is an explicitly accepted residual race
+            # for the current single-operator, tailnet-only deployment. The
+            # fenced UPDATE still protects DB ownership and DB evidence.
+            return finalize_processing_reconciliation_request(
+                prepared.request_id,
+                expected_processing_check_id=prepared.expected_processing_check_id,
+                actor_label=PROCESSING_RECONCILIATION_ACTOR_LABEL,
+                diagnosis_snapshot_json=prepared.diagnosis_snapshot_json,
+                operator_note=note,
+                artifact_json_sha256=prepared.artifact_json_sha256,
+                artifact_markdown_sha256=prepared.artifact_markdown_sha256,
+            )
+
+        if _is_known_conflict(prepared):
+            return record_processing_reconciliation_audit_only(
+                prepared.request_id,
+                expected_processing_check_id=prepared.expected_processing_check_id,
+                outcome="conflict",
+                actor_label=PROCESSING_RECONCILIATION_ACTOR_LABEL,
+                diagnosis_snapshot_json=prepared.diagnosis_snapshot_json,
+                operator_note=note,
+                artifact_json_sha256=prepared.artifact_json_sha256,
+                artifact_markdown_sha256=prepared.artifact_markdown_sha256,
+            )
+
+        return record_processing_reconciliation_audit_only(
+            prepared.request_id,
+            expected_processing_check_id=prepared.expected_processing_check_id,
+            outcome="precondition_failed",
+            actor_label=PROCESSING_RECONCILIATION_ACTOR_LABEL,
+            diagnosis_snapshot_json=prepared.diagnosis_snapshot_json,
+            operator_note=note,
+            artifact_json_sha256=prepared.artifact_json_sha256,
+            artifact_markdown_sha256=prepared.artifact_markdown_sha256,
+        )
+    except ProcessingReconciliationFinalizeRequestNotFoundError as exc:
+        raise ProcessingReconciliationRequestNotFoundError(
+            exc.request_id
+        ) from exc
+
+
+def _validate_finalize_request_id(request_id: int) -> int:
+    if (
+        isinstance(request_id, bool)
+        or not isinstance(request_id, int)
+        or request_id <= 0
+    ):
+        raise ProcessingReconciliationValidationError(
+            "request_id must be a positive integer"
+        )
+    return request_id
+
+
+def _validate_finalize_expected_token(token: str) -> str:
+    if not isinstance(token, str) or not is_canonical_processing_check_id(token):
+        raise ProcessingReconciliationValidationError(
+            "expected_processing_check_id must be a canonical processing "
+            "check id"
+        )
+    return token
+
+
+def _normalize_operator_note(operator_note: str | None) -> str | None:
+    if operator_note is None:
+        return None
+    if not isinstance(operator_note, str):
+        raise ProcessingReconciliationValidationError(
+            "operator_note must be a string or None"
+        )
+    if operator_note.strip() == "":
+        return None
+    column = ReconciliationActionRecord.__table__.c.operator_note
+    max_length = getattr(column.type, "length", None)
+    if max_length is not None and len(operator_note) > max_length:
+        raise ProcessingReconciliationValidationError(
+            "operator_note exceeds the audit-column length constraint"
+        )
+    return operator_note
+
+
+def _prepare_finalization(
+    request_id: int,
+    *,
+    expected_processing_check_id: str,
+) -> _PreparedFinalization:
+    inspection = get_processing_reconciliation_database_inspection_for_token(
+        request_id,
+        expected_processing_check_id,
+    )
+    if inspection is None:
+        raise ProcessingReconciliationRequestNotFoundError(request_id)
+
+    token = expected_processing_check_id
+    trusted_root = _trusted_outputs_root()
+    expected_json_path = report_agent.json_path_for_check(int(token))
+    expected_markdown_path = report_agent.markdown_path_for_check(int(token))
+    json_snapshot = _inspect_json_artifact(
+        expected_json_path,
+        trusted_root=trusted_root,
+    )
+    markdown_snapshot = _inspect_file_artifact(
+        expected_markdown_path,
+        trusted_root=trusted_root,
+    )
+
+    database_facts = _with_report_consistency(
+        inspection.database,
+        reports=inspection.token_report_records,
+        expected_json_path=expected_json_path,
+        expected_markdown_path=expected_markdown_path,
+        json_snapshot=json_snapshot,
+        markdown_snapshot=markdown_snapshot,
+    )
+    diagnosed_at = _utc_now()
+    facts = ProcessingReconciliationFacts(
+        request=inspection.request,
+        database=database_facts,
+        artifacts=ReconciliationArtifactFacts(
+            json_artifact=json_snapshot.facts,
+            markdown_artifact=markdown_snapshot.facts,
+        ),
+        diagnosed_at=diagnosed_at,
+        stale_after=PROCESSING_RECONCILIATION_STALE_AFTER,
+    )
+    diagnosis = classify_processing_reconciliation(facts)
+    snapshot_json = _build_audit_snapshot_json(
+        request_id=request_id,
+        expected_processing_check_id=token,
+        request=inspection.request,
+        database=database_facts,
+        diagnosis=diagnosis,
+        json_facts=json_snapshot.facts,
+        markdown_facts=markdown_snapshot.facts,
+        artifact_json_sha256=json_snapshot.sha256,
+        artifact_markdown_sha256=markdown_snapshot.sha256,
+    )
+    return _PreparedFinalization(
+        request_id=request_id,
+        expected_processing_check_id=token,
+        request=inspection.request,
+        database=database_facts,
+        diagnosis=diagnosis,
+        json_snapshot=json_snapshot,
+        markdown_snapshot=markdown_snapshot,
+        artifact_json_sha256=json_snapshot.sha256,
+        artifact_markdown_sha256=markdown_snapshot.sha256,
+        diagnosis_snapshot_json=snapshot_json,
+    )
+
+
+def _build_audit_snapshot_json(
+    *,
+    request_id: int,
+    expected_processing_check_id: str,
+    request: ProcessingRequestFacts,
+    database: ReconciliationDatabaseFacts,
+    diagnosis: ProcessingReconciliationDiagnosis,
+    json_facts: JsonArtifactFacts,
+    markdown_facts: ArtifactFileFacts,
+    artifact_json_sha256: str | None,
+    artifact_markdown_sha256: str | None,
+) -> str:
+    payload = {
+        "request_id": request_id,
+        "expected_processing_check_id": expected_processing_check_id,
+        "request": request.model_dump(mode="json"),
+        "database": database.model_dump(mode="json"),
+        "artifacts": {
+            "json_artifact": json_facts.model_dump(mode="json"),
+            "markdown_artifact": markdown_facts.model_dump(mode="json"),
+        },
+        "diagnosis": diagnosis.model_dump(mode="json"),
+        "artifact_json_sha256": artifact_json_sha256,
+        "artifact_markdown_sha256": artifact_markdown_sha256,
+    }
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"))
+
+
+def _status_value(status: CheckRequestStatus | str) -> str:
+    if isinstance(status, CheckRequestStatus):
+        return status.value
+    return status
+
+
+def _db_evidence_complete(
+    prepared: _PreparedFinalization,
+) -> bool:
+    database = prepared.database
+    request_id = prepared.request_id
+    if database.foreign_processing_token_request_ids:
+        return False
+    if database.matching_company_check_source_request_ids != (request_id,):
+        return False
+    if database.report_record_count != 1:
+        return False
+    if len(database.tool_call_names) != len(REQUIRED_RECONCILIATION_TOOL_CALLS):
+        return False
+    counts = Counter(database.tool_call_names)
+    expected = Counter(REQUIRED_RECONCILIATION_TOOL_CALLS)
+    return counts == expected
+
+
+def _filesystem_evidence_complete_and_consistent(
+    prepared: _PreparedFinalization,
+) -> bool:
+    token = prepared.expected_processing_check_id
+    database = prepared.database
+    json_facts = prepared.json_snapshot.facts
+    markdown_facts = prepared.markdown_snapshot.facts
+
+    if not (
+        json_facts.exists
+        and json_facts.is_regular_file
+        and not json_facts.is_symlink
+        and json_facts.within_output_root
+        and json_facts.utf8_readable
+        and json_facts.json_valid
+        and json_facts.parsed_check_id == token
+    ):
+        return False
+    if not (
+        markdown_facts.exists
+        and markdown_facts.is_regular_file
+        and not markdown_facts.is_symlink
+        and markdown_facts.within_output_root
+        and markdown_facts.utf8_readable
+    ):
+        return False
+    if (
+        database.report_json_path_consistency
+        is not ReconciliationConsistency.consistent
+    ):
+        return False
+    if (
+        database.report_markdown_path_consistency
+        is not ReconciliationConsistency.consistent
+    ):
+        return False
+    if (
+        database.report_json_content_consistency
+        is not ReconciliationConsistency.consistent
+    ):
+        return False
+    if (
+        database.report_markdown_content_consistency
+        is not ReconciliationConsistency.consistent
+    ):
+        return False
+    return True
+
+
+def _is_candidate_new_finalization(prepared: _PreparedFinalization) -> bool:
+    request = prepared.request
+    token = prepared.expected_processing_check_id
+    return (
+        _status_value(request.status) == CheckRequestStatus.processing.value
+        and request.processing_check_id == token
+        and request.processing_started_at is not None
+        and request.company_check_id is None
+        and prepared.diagnosis.classification
+        is ReconciliationClassification.stale_persisted_complete
+        and _db_evidence_complete(prepared)
+        and _filesystem_evidence_complete_and_consistent(prepared)
+    )
+
+
+def _is_candidate_already_processed(prepared: _PreparedFinalization) -> bool:
+    request = prepared.request
+    token = prepared.expected_processing_check_id
+    return (
+        _status_value(request.status) == CheckRequestStatus.processed.value
+        and request.company_check_id == token
+        and request.processing_check_id is None
+        and request.processing_started_at is None
+        and _db_evidence_complete(prepared)
+        and _filesystem_evidence_complete_and_consistent(prepared)
+        and prepared.json_snapshot.facts.parsed_check_id == token
+    )
+
+
+def _is_known_conflict(prepared: _PreparedFinalization) -> bool:
+    request = prepared.request
+    token = prepared.expected_processing_check_id
+    status = _status_value(request.status)
+    if prepared.database.foreign_processing_token_request_ids:
+        return True
+    for source_id in prepared.database.matching_company_check_source_request_ids:
+        if (
+            isinstance(source_id, int)
+            and not isinstance(source_id, bool)
+            and source_id > 0
+            and source_id != prepared.request_id
+        ):
+            return True
+    if (
+        status == CheckRequestStatus.processing.value
+        and request.processing_check_id is not None
+        and request.processing_check_id != token
+    ):
+        return True
+    if (
+        status == CheckRequestStatus.processed.value
+        and request.company_check_id is not None
+        and request.company_check_id != token
+    ):
+        return True
+    return False

@@ -19,6 +19,7 @@ from app.db.models import (
 )
 from app.db.repositories import (
     get_processing_reconciliation_database_inspection,
+    get_processing_reconciliation_database_inspection_for_token,
     list_processing_check_request_records,
 )
 from app.schemas.check_request import CheckRequestStatus
@@ -667,3 +668,169 @@ def test_list_processing_one_session_no_mutation(sqlite_db, monkeypatch):
     finally:
         after.close()
     assert status_before == status_after == "processing"
+
+
+OTHER_TOKEN = "1782245999002"
+
+
+def test_for_token_inspection_works_when_processing_check_id_null(sqlite_db):
+    request_id = _insert_request(
+        sqlite_db,
+        status="processed",
+        company_check_id=TOKEN,
+        processing_check_id=None,
+        processing_started_at=None,
+    )
+    company_id = _insert_company_check(
+        sqlite_db,
+        source_check_request_id=request_id,
+    )
+    _insert_report(sqlite_db)
+    _insert_tool_call(sqlite_db, tool_name="web_search")
+
+    result = get_processing_reconciliation_database_inspection_for_token(
+        request_id,
+        TOKEN,
+    )
+
+    assert result is not None
+    assert result.request.processing_check_id is None
+    assert result.request.company_check_id == TOKEN
+    assert result.request.status is CheckRequestStatus.processed
+    assert len(result.token_company_checks) == 1
+    assert result.token_company_checks[0].record_id == company_id
+    assert result.database.report_record_count == 1
+    assert result.database.tool_call_names == ("web_search",)
+
+
+def test_for_token_uses_submitted_token_not_request_token(sqlite_db):
+    request_id = _insert_request(
+        sqlite_db,
+        processing_check_id=OTHER_TOKEN,
+    )
+    _insert_company_check(
+        sqlite_db,
+        check_id=TOKEN,
+        source_check_request_id=request_id,
+    )
+    _insert_report(sqlite_db, check_id=TOKEN)
+    _insert_company_check(
+        sqlite_db,
+        check_id=OTHER_TOKEN,
+        source_check_request_id=None,
+    )
+
+    result = get_processing_reconciliation_database_inspection_for_token(
+        request_id,
+        TOKEN,
+    )
+
+    assert result is not None
+    assert result.request.processing_check_id == OTHER_TOKEN
+    assert len(result.token_company_checks) == 1
+    assert result.token_company_checks[0].check_id == TOKEN
+    assert result.database.report_record_count == 1
+    assert all(
+        snap.check_id == TOKEN for snap in result.token_report_records
+    )
+
+
+def test_for_token_missing_request_returns_none(sqlite_db):
+    assert (
+        get_processing_reconciliation_database_inspection_for_token(
+            999999,
+            TOKEN,
+        )
+        is None
+    )
+
+
+@pytest.mark.parametrize(
+    "invalid_id",
+    [True, False, "1", 1.5, None, 0, -1],
+)
+def test_for_token_invalid_request_ids_raise_value_error(invalid_id):
+    with pytest.raises(ValueError, match="positive integer"):
+        get_processing_reconciliation_database_inspection_for_token(
+            invalid_id,
+            TOKEN,
+        )
+
+
+@pytest.mark.parametrize(
+    "invalid_token",
+    ["", " 123 ", "0123", "abc", None, 123, True],
+)
+def test_for_token_invalid_tokens_raise_value_error(invalid_token):
+    with pytest.raises(ValueError, match="canonical"):
+        get_processing_reconciliation_database_inspection_for_token(
+            1,
+            invalid_token,
+        )
+
+
+def test_get_inspection_behavior_unchanged_for_canonical_token(sqlite_db):
+    request_id = _insert_request(sqlite_db)
+    company_id = _insert_company_check(
+        sqlite_db,
+        source_check_request_id=request_id,
+    )
+    _insert_report(sqlite_db)
+    _insert_tool_call(sqlite_db, tool_name="web_search")
+
+    via_get = get_processing_reconciliation_database_inspection(request_id)
+    via_token = get_processing_reconciliation_database_inspection_for_token(
+        request_id,
+        TOKEN,
+    )
+
+    assert via_get is not None and via_token is not None
+    assert via_get.request == via_token.request
+    assert via_get.database == via_token.database
+    assert via_get.token_company_checks == via_token.token_company_checks
+    assert via_get.token_report_records == via_token.token_report_records
+    assert via_get.token_company_checks[0].record_id == company_id
+
+
+INVALID_NONBLANK_TOKEN = "not-a-canonical-token"
+
+
+def test_legacy_get_loads_evidence_for_invalid_nonblank_token(sqlite_db):
+    request_id = _insert_request(
+        sqlite_db,
+        processing_check_id=INVALID_NONBLANK_TOKEN,
+    )
+    company_id = _insert_company_check(
+        sqlite_db,
+        check_id=INVALID_NONBLANK_TOKEN,
+        source_check_request_id=None,
+    )
+    _insert_report(sqlite_db, check_id=INVALID_NONBLANK_TOKEN)
+    _insert_tool_call(
+        sqlite_db,
+        tool_name="web_search",
+        check_id=INVALID_NONBLANK_TOKEN,
+    )
+
+    result = get_processing_reconciliation_database_inspection(request_id)
+
+    assert result is not None
+    assert result.request.processing_check_id == INVALID_NONBLANK_TOKEN
+    assert len(result.token_company_checks) == 1
+    assert result.token_company_checks[0].record_id == company_id
+    assert result.token_company_checks[0].check_id == INVALID_NONBLANK_TOKEN
+    assert result.database.report_record_count == 1
+    assert result.database.tool_call_names == ("web_search",)
+    assert len(result.token_report_records) == 1
+
+
+def test_for_token_still_rejects_invalid_nonblank_token(sqlite_db):
+    request_id = _insert_request(
+        sqlite_db,
+        processing_check_id=INVALID_NONBLANK_TOKEN,
+    )
+    with pytest.raises(ValueError, match="canonical"):
+        get_processing_reconciliation_database_inspection_for_token(
+            request_id,
+            INVALID_NONBLANK_TOKEN,
+        )

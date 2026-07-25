@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import hashlib
+import inspect
 import json
+from collections import Counter
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -13,13 +15,20 @@ from pydantic import ValidationError
 from sqlalchemy.exc import SQLAlchemyError
 
 import app.agents.report_agent as report_agent
+from app.db.repositories import (
+    ProcessingReconciliationFinalizeResult,
+    REQUIRED_RECONCILIATION_TOOL_CALLS,
+)
 from app.schemas.check_request import CheckRequestStatus
 from app.schemas.processing_reconciliation import (
+    ArtifactFileFacts,
+    JsonArtifactFacts,
     ProcessingReconciliationDatabaseInspection,
     ProcessingReconciliationDiagnosis,
     ProcessingReconciliationDiagnosisError,
     ProcessingReconciliationRequestSummary,
     ProcessingRequestFacts,
+    ReconciliationArtifactFacts,
     ReconciliationClassification,
     ReconciliationConsistency,
     ReconciliationDatabaseFacts,
@@ -28,8 +37,11 @@ from app.schemas.processing_reconciliation import (
 )
 from app.services import processing_reconciliation_service as service
 from app.services.processing_reconciliation_service import (
+    PROCESSING_RECONCILIATION_ACTOR_LABEL,
     ProcessingReconciliationRequestNotFoundError,
+    ProcessingReconciliationValidationError,
     diagnose_processing_reconciliation,
+    finalize_processing_reconciliation,
 )
 
 
@@ -1247,3 +1259,1119 @@ def test_list_processing_reconciliation_requests_maps_once(monkeypatch):
     )
     assert rows[0].created_at == created.replace(tzinfo=timezone.utc)
     assert not hasattr(rows[0], "email")
+
+
+# ---------------------------------------------------------------------------
+# finalize_processing_reconciliation
+# ---------------------------------------------------------------------------
+
+OTHER_TOKEN = "9999999999002"
+OVERSIZED_OPERATOR_NOTE = "n" * 100_000
+
+
+def _finalize_result(
+    outcome: str,
+    *,
+    request_id: int = 42,
+    expected_processing_check_id: str = TOKEN,
+    audit_id: int = 1,
+) -> ProcessingReconciliationFinalizeResult:
+    return ProcessingReconciliationFinalizeResult(
+        outcome=outcome,
+        request_id=request_id,
+        expected_processing_check_id=expected_processing_check_id,
+        audit_id=audit_id,
+    )
+
+
+def _complete_request_facts(
+    *,
+    request_id: int = 42,
+    status: CheckRequestStatus | str = CheckRequestStatus.processing,
+    processing_check_id: str | None = TOKEN,
+    company_check_id: str | None = None,
+    processing_started_at: datetime | None = STARTED_AT,
+) -> ProcessingRequestFacts:
+    return ProcessingRequestFacts(
+        request_id=request_id,
+        status=status,
+        company_check_id=company_check_id,
+        processing_check_id=processing_check_id,
+        processing_started_at=processing_started_at,
+    )
+
+
+def _complete_db_inspection(
+    request_id: int = 42,
+    *,
+    status: CheckRequestStatus | str = CheckRequestStatus.processing,
+    processing_check_id: str | None = TOKEN,
+    company_check_id: str | None = None,
+    processing_started_at: datetime | None = STARTED_AT,
+    json_path: str,
+    markdown_path: str,
+    json_content: str,
+    markdown_content: str,
+    check_id: str = TOKEN,
+) -> ProcessingReconciliationDatabaseInspection:
+    return ProcessingReconciliationDatabaseInspection(
+        request=_complete_request_facts(
+            request_id=request_id,
+            status=status,
+            processing_check_id=processing_check_id,
+            company_check_id=company_check_id,
+            processing_started_at=processing_started_at,
+        ),
+        database=ReconciliationDatabaseFacts(
+            matching_company_check_source_request_ids=(request_id,),
+            report_record_count=1,
+            tool_call_names=REQUIRED_RECONCILIATION_TOOL_CALLS,
+            report_json_path_consistency=(
+                ReconciliationConsistency.consistent
+            ),
+            report_markdown_path_consistency=(
+                ReconciliationConsistency.consistent
+            ),
+            report_json_content_consistency=(
+                ReconciliationConsistency.consistent
+            ),
+            report_markdown_content_consistency=(
+                ReconciliationConsistency.consistent
+            ),
+        ),
+        token_report_records=(
+            ReconciliationReportSnapshot(
+                record_id=1,
+                check_id=check_id,
+                json_path=json_path,
+                markdown_path=markdown_path,
+                json_content=json_content,
+                markdown_content=markdown_content,
+            ),
+        ),
+    )
+
+
+def _patch_finalize_deps(
+    monkeypatch,
+    inspection: ProcessingReconciliationDatabaseInspection | None,
+    *,
+    mutate_result: ProcessingReconciliationFinalizeResult | None = None,
+    audit_result: ProcessingReconciliationFinalizeResult | None = None,
+):
+    for_token = MagicMock(return_value=inspection)
+    old_inspect = MagicMock(
+        side_effect=AssertionError(
+            "get_processing_reconciliation_database_inspection must not run"
+        )
+    )
+    mutate = MagicMock(
+        return_value=mutate_result or _finalize_result("finalized")
+    )
+    audit = MagicMock(
+        return_value=audit_result
+        or _finalize_result("precondition_failed")
+    )
+    monkeypatch.setattr(
+        service,
+        "get_processing_reconciliation_database_inspection_for_token",
+        for_token,
+    )
+    monkeypatch.setattr(
+        service,
+        "get_processing_reconciliation_database_inspection",
+        old_inspect,
+    )
+    monkeypatch.setattr(
+        service,
+        "finalize_processing_reconciliation_request",
+        mutate,
+    )
+    monkeypatch.setattr(
+        service,
+        "record_processing_reconciliation_audit_only",
+        audit,
+    )
+    monkeypatch.setattr(service, "_utc_now", lambda: FIXED_NOW)
+    return for_token, old_inspect, mutate, audit
+
+
+def _artifact_texts(
+    json_dir: Path,
+    reports_dir: Path,
+) -> tuple[Path, Path, str, str]:
+    json_path, markdown_path = _write_valid_artifacts(json_dir, reports_dir)
+    # Match service binary-open semantics (no text-mode newline translation).
+    return (
+        json_path,
+        markdown_path,
+        json_path.read_bytes().decode("utf-8"),
+        markdown_path.read_bytes().decode("utf-8"),
+    )
+
+
+def test_finalize_invalid_request_id_rejected_before_io(monkeypatch):
+    for_token = MagicMock(side_effect=AssertionError("for_token must not run"))
+    monkeypatch.setattr(
+        service,
+        "get_processing_reconciliation_database_inspection_for_token",
+        for_token,
+    )
+    for invalid in [True, False, "1", 0, -1, 1.5, None]:
+        with pytest.raises(ProcessingReconciliationValidationError):
+            finalize_processing_reconciliation(
+                invalid,  # type: ignore[arg-type]
+                expected_processing_check_id=TOKEN,
+            )
+    for_token.assert_not_called()
+
+
+def test_finalize_invalid_token_rejected_before_io(monkeypatch):
+    for_token = MagicMock(side_effect=AssertionError("for_token must not run"))
+    monkeypatch.setattr(
+        service,
+        "get_processing_reconciliation_database_inspection_for_token",
+        for_token,
+    )
+    for invalid in ["", "01", "abc", " 1782245999001", None, 123, True]:
+        with pytest.raises(ProcessingReconciliationValidationError):
+            finalize_processing_reconciliation(
+                42,
+                expected_processing_check_id=invalid,  # type: ignore[arg-type]
+            )
+    for_token.assert_not_called()
+
+
+def test_finalize_uses_explicit_token_inspection(
+    monkeypatch,
+    outputs_dirs,
+):
+    json_dir, reports_dir = outputs_dirs
+    json_path, markdown_path, json_text, markdown_text = _artifact_texts(
+        json_dir,
+        reports_dir,
+    )
+    inspection = _complete_db_inspection(
+        json_path=str(json_path),
+        markdown_path=str(markdown_path),
+        json_content=json_text,
+        markdown_content=markdown_text,
+    )
+    for_token, old_inspect, mutate, audit = _patch_finalize_deps(
+        monkeypatch,
+        inspection,
+    )
+
+    finalize_processing_reconciliation(
+        42,
+        expected_processing_check_id=TOKEN,
+    )
+
+    for_token.assert_called_once_with(42, TOKEN)
+    old_inspect.assert_not_called()
+    mutate.assert_called_once()
+    audit.assert_not_called()
+
+
+def test_finalize_fresh_eligible_calls_mutating_once(
+    monkeypatch,
+    outputs_dirs,
+):
+    json_dir, reports_dir = outputs_dirs
+    json_path, markdown_path, json_text, markdown_text = _artifact_texts(
+        json_dir,
+        reports_dir,
+    )
+    inspection = _complete_db_inspection(
+        json_path=str(json_path),
+        markdown_path=str(markdown_path),
+        json_content=json_text,
+        markdown_content=markdown_text,
+    )
+    _, _, mutate, audit = _patch_finalize_deps(
+        monkeypatch,
+        inspection,
+        mutate_result=_finalize_result("finalized"),
+    )
+
+    result = finalize_processing_reconciliation(
+        42,
+        expected_processing_check_id=TOKEN,
+        operator_note="ok",
+    )
+
+    assert result.outcome == "finalized"
+    mutate.assert_called_once()
+    audit.assert_not_called()
+    kwargs = mutate.call_args.kwargs
+    assert kwargs["actor_label"] == PROCESSING_RECONCILIATION_ACTOR_LABEL
+    assert kwargs["expected_processing_check_id"] == TOKEN
+    assert kwargs["operator_note"] == "ok"
+    assert Counter(inspection.database.tool_call_names) == Counter(
+        REQUIRED_RECONCILIATION_TOOL_CALLS
+    )
+
+
+def test_finalize_already_processed_calls_mutating_once(
+    monkeypatch,
+    outputs_dirs,
+):
+    json_dir, reports_dir = outputs_dirs
+    json_path, markdown_path, json_text, markdown_text = _artifact_texts(
+        json_dir,
+        reports_dir,
+    )
+    inspection = _complete_db_inspection(
+        status=CheckRequestStatus.processed,
+        processing_check_id=None,
+        company_check_id=TOKEN,
+        processing_started_at=None,
+        json_path=str(json_path),
+        markdown_path=str(markdown_path),
+        json_content=json_text,
+        markdown_content=markdown_text,
+    )
+    _, _, mutate, audit = _patch_finalize_deps(
+        monkeypatch,
+        inspection,
+        mutate_result=_finalize_result("already_processed"),
+    )
+
+    result = finalize_processing_reconciliation(
+        42,
+        expected_processing_check_id=TOKEN,
+    )
+
+    assert result.outcome == "already_processed"
+    mutate.assert_called_once()
+    audit.assert_not_called()
+    assert (
+        mutate.call_args.kwargs["actor_label"]
+        == PROCESSING_RECONCILIATION_ACTOR_LABEL
+    )
+
+
+def test_finalize_conflict_uses_audit_only_never_mutate(
+    monkeypatch,
+    outputs_dirs,
+):
+    json_dir, reports_dir = outputs_dirs
+    json_path, markdown_path, json_text, markdown_text = _artifact_texts(
+        json_dir,
+        reports_dir,
+    )
+    inspection = _complete_db_inspection(
+        processing_check_id=OTHER_TOKEN,
+        json_path=str(json_path),
+        markdown_path=str(markdown_path),
+        json_content=json_text,
+        markdown_content=markdown_text,
+    )
+    _, _, mutate, audit = _patch_finalize_deps(
+        monkeypatch,
+        inspection,
+        audit_result=_finalize_result("conflict"),
+    )
+
+    result = finalize_processing_reconciliation(
+        42,
+        expected_processing_check_id=TOKEN,
+    )
+
+    assert result.outcome == "conflict"
+    mutate.assert_not_called()
+    audit.assert_called_once()
+    assert audit.call_args.kwargs["outcome"] == "conflict"
+    assert (
+        audit.call_args.kwargs["actor_label"]
+        == PROCESSING_RECONCILIATION_ACTOR_LABEL
+    )
+
+
+def test_finalize_too_young_uses_audit_only_precondition_failed(
+    monkeypatch,
+    outputs_dirs,
+):
+    json_dir, reports_dir = outputs_dirs
+    json_path, markdown_path, json_text, markdown_text = _artifact_texts(
+        json_dir,
+        reports_dir,
+    )
+    recent = FIXED_NOW - timedelta(minutes=5)
+    inspection = _complete_db_inspection(
+        processing_started_at=recent,
+        json_path=str(json_path),
+        markdown_path=str(markdown_path),
+        json_content=json_text,
+        markdown_content=markdown_text,
+    )
+    _, _, mutate, audit = _patch_finalize_deps(
+        monkeypatch,
+        inspection,
+        audit_result=_finalize_result("precondition_failed"),
+    )
+
+    result = finalize_processing_reconciliation(
+        42,
+        expected_processing_check_id=TOKEN,
+    )
+
+    assert result.outcome == "precondition_failed"
+    mutate.assert_not_called()
+    audit.assert_called_once()
+    assert audit.call_args.kwargs["outcome"] == "precondition_failed"
+
+
+def test_finalize_incomplete_db_uses_audit_only_precondition_failed(
+    monkeypatch,
+    outputs_dirs,
+):
+    json_dir, reports_dir = outputs_dirs
+    json_path, markdown_path, json_text, markdown_text = _artifact_texts(
+        json_dir,
+        reports_dir,
+    )
+    inspection = _complete_db_inspection(
+        json_path=str(json_path),
+        markdown_path=str(markdown_path),
+        json_content=json_text,
+        markdown_content=markdown_text,
+    )
+    inspection = inspection.model_copy(
+        update={
+            "database": inspection.database.model_copy(
+                update={"tool_call_names": ("web_search",)}
+            )
+        }
+    )
+    _, _, mutate, audit = _patch_finalize_deps(
+        monkeypatch,
+        inspection,
+        audit_result=_finalize_result("precondition_failed"),
+    )
+
+    result = finalize_processing_reconciliation(
+        42,
+        expected_processing_check_id=TOKEN,
+    )
+
+    assert result.outcome == "precondition_failed"
+    mutate.assert_not_called()
+    audit.assert_called_once()
+    assert audit.call_args.kwargs["outcome"] == "precondition_failed"
+
+
+@pytest.mark.parametrize(
+    "scenario",
+    [
+        "missing",
+        "non_regular",
+        "symlink",
+        "path_escape",
+        "unreadable_utf8",
+        "invalid_json",
+        "json_check_id_mismatch",
+        "report_content_mismatch",
+    ],
+)
+def test_finalize_fs_invalid_uses_audit_only_precondition_failed(
+    scenario,
+    monkeypatch,
+    outputs_dirs,
+    tmp_path,
+):
+    json_dir, reports_dir = outputs_dirs
+    json_path = json_dir / f"company_check_{TOKEN}.json"
+    markdown_path = reports_dir / f"company_check_{TOKEN}.md"
+    valid_payload = {"check_id": TOKEN, "ok": True}
+    valid_json = json.dumps(valid_payload, indent=2)
+    valid_md = "# Report\n"
+
+    report_json_path = str(json_path)
+    report_markdown_path = str(markdown_path)
+    report_json_content = valid_json
+    report_markdown_content = valid_md
+
+    if scenario == "missing":
+        markdown_path.write_text(valid_md, encoding="utf-8")
+        report_json_content = valid_json
+        report_markdown_content = valid_md
+    elif scenario == "non_regular":
+        json_path.mkdir()
+        markdown_path.write_text(valid_md, encoding="utf-8")
+    elif scenario == "symlink":
+        real = json_dir / "real.json"
+        real.write_text(valid_json, encoding="utf-8")
+        json_path.symlink_to(real)
+        markdown_path.write_text(valid_md, encoding="utf-8")
+    elif scenario == "path_escape":
+        outside_json = tmp_path / "outside.json"
+        outside_md = tmp_path / "outside.md"
+        outside_json.write_text(valid_json, encoding="utf-8")
+        outside_md.write_text(valid_md, encoding="utf-8")
+        monkeypatch.setattr(
+            report_agent,
+            "json_path_for_check",
+            MagicMock(return_value=outside_json),
+        )
+        monkeypatch.setattr(
+            report_agent,
+            "markdown_path_for_check",
+            MagicMock(return_value=outside_md),
+        )
+        report_json_path = str(outside_json)
+        report_markdown_path = str(outside_md)
+        report_json_content = valid_json
+        report_markdown_content = valid_md
+    elif scenario == "unreadable_utf8":
+        json_path.write_bytes(b"\xff\xfe not utf8")
+        markdown_path.write_text(valid_md, encoding="utf-8")
+        report_json_content = valid_json
+    elif scenario == "invalid_json":
+        bad = "{not-json"
+        json_path.write_text(bad, encoding="utf-8")
+        markdown_path.write_text(valid_md, encoding="utf-8")
+        report_json_content = bad
+    elif scenario == "json_check_id_mismatch":
+        mismatched = json.dumps({"check_id": "999", "ok": True}, indent=2)
+        json_path.write_text(mismatched, encoding="utf-8")
+        markdown_path.write_text(valid_md, encoding="utf-8")
+        report_json_content = mismatched
+    elif scenario == "report_content_mismatch":
+        json_path.write_text(valid_json, encoding="utf-8")
+        markdown_path.write_text(valid_md, encoding="utf-8")
+        report_json_content = json.dumps(
+            {"check_id": TOKEN, "ok": False},
+            indent=2,
+        )
+    else:
+        raise AssertionError(f"unknown scenario {scenario}")
+
+    inspection = _complete_db_inspection(
+        json_path=report_json_path,
+        markdown_path=report_markdown_path,
+        json_content=report_json_content,
+        markdown_content=report_markdown_content,
+    )
+    _, _, mutate, audit = _patch_finalize_deps(
+        monkeypatch,
+        inspection,
+        audit_result=_finalize_result("precondition_failed"),
+    )
+
+    result = finalize_processing_reconciliation(
+        42,
+        expected_processing_check_id=TOKEN,
+    )
+
+    assert result.outcome == "precondition_failed"
+    mutate.assert_not_called()
+    audit.assert_called_once()
+    assert audit.call_args.kwargs["outcome"] == "precondition_failed"
+
+
+def test_finalize_repository_outcome_returned_unchanged(
+    monkeypatch,
+    outputs_dirs,
+):
+    json_dir, reports_dir = outputs_dirs
+    json_path, markdown_path, json_text, markdown_text = _artifact_texts(
+        json_dir,
+        reports_dir,
+    )
+    inspection = _complete_db_inspection(
+        json_path=str(json_path),
+        markdown_path=str(markdown_path),
+        json_content=json_text,
+        markdown_content=markdown_text,
+    )
+    repo_result = _finalize_result("precondition_failed", audit_id=77)
+    _, _, mutate, audit = _patch_finalize_deps(
+        monkeypatch,
+        inspection,
+        mutate_result=repo_result,
+    )
+
+    result = finalize_processing_reconciliation(
+        42,
+        expected_processing_check_id=TOKEN,
+    )
+
+    assert result is repo_result
+    assert result.outcome == "precondition_failed"
+    assert result.audit_id == 77
+    mutate.assert_called_once()
+    audit.assert_not_called()
+
+
+def test_finalize_missing_request_raises_not_found(monkeypatch, outputs_dirs):
+    for_token, _, mutate, audit = _patch_finalize_deps(monkeypatch, None)
+
+    with pytest.raises(ProcessingReconciliationRequestNotFoundError) as exc:
+        finalize_processing_reconciliation(
+            42,
+            expected_processing_check_id=TOKEN,
+        )
+
+    assert exc.value.request_id == 42
+    for_token.assert_called_once_with(42, TOKEN)
+    mutate.assert_not_called()
+    audit.assert_not_called()
+
+
+def test_finalize_repository_runtime_error_propagates(
+    monkeypatch,
+    outputs_dirs,
+):
+    json_dir, reports_dir = outputs_dirs
+    json_path, markdown_path, json_text, markdown_text = _artifact_texts(
+        json_dir,
+        reports_dir,
+    )
+    inspection = _complete_db_inspection(
+        json_path=str(json_path),
+        markdown_path=str(markdown_path),
+        json_content=json_text,
+        markdown_content=markdown_text,
+    )
+    for_token, _, mutate, audit = _patch_finalize_deps(monkeypatch, inspection)
+    for_token.side_effect = RuntimeError("db boom")
+
+    with pytest.raises(RuntimeError, match="db boom"):
+        finalize_processing_reconciliation(
+            42,
+            expected_processing_check_id=TOKEN,
+        )
+    mutate.assert_not_called()
+    audit.assert_not_called()
+
+
+def test_finalize_filesystem_oserror_propagates(monkeypatch, outputs_dirs):
+    json_dir, reports_dir = outputs_dirs
+    json_path, markdown_path, json_text, markdown_text = _artifact_texts(
+        json_dir,
+        reports_dir,
+    )
+    inspection = _complete_db_inspection(
+        json_path=str(json_path),
+        markdown_path=str(markdown_path),
+        json_content=json_text,
+        markdown_content=markdown_text,
+    )
+    _, _, mutate, audit = _patch_finalize_deps(monkeypatch, inspection)
+    monkeypatch.setattr(
+        service,
+        "_trusted_outputs_root",
+        MagicMock(side_effect=OSError("root failed")),
+    )
+
+    with pytest.raises(OSError, match="root failed"):
+        finalize_processing_reconciliation(
+            42,
+            expected_processing_check_id=TOKEN,
+        )
+    mutate.assert_not_called()
+    audit.assert_not_called()
+
+
+def test_finalize_audit_snapshot_deterministic(monkeypatch, outputs_dirs):
+    json_dir, reports_dir = outputs_dirs
+    json_path, markdown_path, json_text, markdown_text = _artifact_texts(
+        json_dir,
+        reports_dir,
+    )
+    inspection = _complete_db_inspection(
+        json_path=str(json_path),
+        markdown_path=str(markdown_path),
+        json_content=json_text,
+        markdown_content=markdown_text,
+    )
+    diagnosis = ProcessingReconciliationDiagnosis(
+        request_id=42,
+        processing_check_id=TOKEN,
+        classification=ReconciliationClassification.stale_persisted_complete,
+        diagnosed_at=FIXED_NOW,
+        age_seconds=10800.0,
+    )
+    json_facts = JsonArtifactFacts(
+        exists=True,
+        is_regular_file=True,
+        is_symlink=False,
+        within_output_root=True,
+        utf8_readable=True,
+        json_valid=True,
+        parsed_check_id=TOKEN,
+    )
+    markdown_facts = ArtifactFileFacts(
+        exists=True,
+        is_regular_file=True,
+        is_symlink=False,
+        within_output_root=True,
+        utf8_readable=True,
+    )
+    digest_json = hashlib.sha256(json_text.encode("utf-8")).hexdigest()
+    digest_md = hashlib.sha256(markdown_text.encode("utf-8")).hexdigest()
+
+    first = service._build_audit_snapshot_json(
+        request_id=42,
+        expected_processing_check_id=TOKEN,
+        request=inspection.request,
+        database=inspection.database,
+        diagnosis=diagnosis,
+        json_facts=json_facts,
+        markdown_facts=markdown_facts,
+        artifact_json_sha256=digest_json,
+        artifact_markdown_sha256=digest_md,
+    )
+    second = service._build_audit_snapshot_json(
+        request_id=42,
+        expected_processing_check_id=TOKEN,
+        request=inspection.request,
+        database=inspection.database,
+        diagnosis=diagnosis,
+        json_facts=json_facts,
+        markdown_facts=markdown_facts,
+        artifact_json_sha256=digest_json,
+        artifact_markdown_sha256=digest_md,
+    )
+    assert first == second
+    assert first == json.dumps(
+        json.loads(first),
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+    snapshots: list[str] = []
+    _, _, mutate, _ = _patch_finalize_deps(monkeypatch, inspection)
+
+    def capture_mutate(*args, **kwargs):
+        snapshots.append(kwargs["diagnosis_snapshot_json"])
+        return _finalize_result("finalized")
+
+    mutate.side_effect = capture_mutate
+    finalize_processing_reconciliation(
+        42,
+        expected_processing_check_id=TOKEN,
+    )
+    finalize_processing_reconciliation(
+        42,
+        expected_processing_check_id=TOKEN,
+    )
+    assert len(snapshots) == 2
+    assert snapshots[0] == snapshots[1]
+
+
+def test_finalize_snapshot_excludes_raw_artifact_content(
+    monkeypatch,
+    outputs_dirs,
+):
+    json_dir, reports_dir = outputs_dirs
+    marker = "UNIQUE_RAW_ARTIFACT_BODY_" + ("X" * 4000)
+    json_path = json_dir / f"company_check_{TOKEN}.json"
+    markdown_path = reports_dir / f"company_check_{TOKEN}.md"
+    payload = {"check_id": TOKEN, "body": marker}
+    json_text = json.dumps(payload, indent=2)
+    markdown_text = f"# Report\n{marker}\n"
+    json_path.write_bytes(json_text.encode("utf-8"))
+    markdown_path.write_bytes(markdown_text.encode("utf-8"))
+    json_text = json_path.read_bytes().decode("utf-8")
+    markdown_text = markdown_path.read_bytes().decode("utf-8")
+    inspection = _complete_db_inspection(
+        json_path=str(json_path),
+        markdown_path=str(markdown_path),
+        json_content=json_text,
+        markdown_content=markdown_text,
+    )
+    _, _, mutate, _ = _patch_finalize_deps(monkeypatch, inspection)
+
+    finalize_processing_reconciliation(
+        42,
+        expected_processing_check_id=TOKEN,
+    )
+
+    snapshot = mutate.call_args.kwargs["diagnosis_snapshot_json"]
+    assert marker not in snapshot
+    parsed = json.loads(snapshot)
+    artifacts = parsed["artifacts"]
+    assert "content" not in artifacts["json_artifact"]
+    assert "content" not in artifacts["markdown_artifact"]
+    assert ReconciliationArtifactFacts(
+        json_artifact=JsonArtifactFacts.model_validate(
+            artifacts["json_artifact"]
+        ),
+        markdown_artifact=ArtifactFileFacts.model_validate(
+            artifacts["markdown_artifact"]
+        ),
+    )
+
+
+def test_finalize_each_artifact_read_once(monkeypatch, outputs_dirs):
+    json_dir, reports_dir = outputs_dirs
+    json_path, markdown_path, json_text, markdown_text = _artifact_texts(
+        json_dir,
+        reports_dir,
+    )
+    inspection = _complete_db_inspection(
+        json_path=str(json_path),
+        markdown_path=str(markdown_path),
+        json_content=json_text,
+        markdown_content=markdown_text,
+    )
+    open_counts: dict[str, int] = {}
+    original_path_open = Path.open
+
+    def counting_open(self, *args, **kwargs):
+        key = str(self)
+        open_counts[key] = open_counts.get(key, 0) + 1
+        return original_path_open(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", counting_open)
+    inspect_counts = {"json": 0, "md": 0}
+    real_inspect_json = service._inspect_json_artifact
+    real_inspect_md = service._inspect_file_artifact
+
+    def counting_json(path, *, trusted_root):
+        inspect_counts["json"] += 1
+        return real_inspect_json(path, trusted_root=trusted_root)
+
+    def counting_md(path, *, trusted_root):
+        inspect_counts["md"] += 1
+        return real_inspect_md(path, trusted_root=trusted_root)
+
+    monkeypatch.setattr(service, "_inspect_json_artifact", counting_json)
+    monkeypatch.setattr(service, "_inspect_file_artifact", counting_md)
+    _patch_finalize_deps(monkeypatch, inspection)
+
+    finalize_processing_reconciliation(
+        42,
+        expected_processing_check_id=TOKEN,
+    )
+
+    assert inspect_counts == {"json": 1, "md": 1}
+    assert open_counts[str(json_path)] == 1
+    assert open_counts[str(markdown_path)] == 1
+
+
+def test_finalize_hashes_match_exact_read_contents(
+    monkeypatch,
+    outputs_dirs,
+):
+    json_dir, reports_dir = outputs_dirs
+    json_path, markdown_path, json_text, markdown_text = _artifact_texts(
+        json_dir,
+        reports_dir,
+    )
+    expected_json_digest = hashlib.sha256(json_path.read_bytes()).hexdigest()
+    expected_md_digest = hashlib.sha256(
+        markdown_path.read_bytes()
+    ).hexdigest()
+    inspection = _complete_db_inspection(
+        json_path=str(json_path),
+        markdown_path=str(markdown_path),
+        json_content=json_text,
+        markdown_content=markdown_text,
+    )
+    _, _, mutate, _ = _patch_finalize_deps(monkeypatch, inspection)
+
+    finalize_processing_reconciliation(
+        42,
+        expected_processing_check_id=TOKEN,
+    )
+
+    kwargs = mutate.call_args.kwargs
+    assert kwargs["artifact_json_sha256"] == expected_json_digest
+    assert kwargs["artifact_markdown_sha256"] == expected_md_digest
+
+
+def test_finalize_actor_label_fixed_by_service_no_actor_param(
+    monkeypatch,
+    outputs_dirs,
+):
+    json_dir, reports_dir = outputs_dirs
+    json_path, markdown_path, json_text, markdown_text = _artifact_texts(
+        json_dir,
+        reports_dir,
+    )
+    inspection = _complete_db_inspection(
+        json_path=str(json_path),
+        markdown_path=str(markdown_path),
+        json_content=json_text,
+        markdown_content=markdown_text,
+    )
+    _, _, mutate, _ = _patch_finalize_deps(monkeypatch, inspection)
+
+    signature = inspect.signature(finalize_processing_reconciliation)
+    assert "actor" not in signature.parameters
+    assert "actor_label" not in signature.parameters
+
+    finalize_processing_reconciliation(
+        42,
+        expected_processing_check_id=TOKEN,
+    )
+    assert (
+        mutate.call_args.kwargs["actor_label"]
+        == PROCESSING_RECONCILIATION_ACTOR_LABEL
+    )
+    assert PROCESSING_RECONCILIATION_ACTOR_LABEL == "internal-unauthenticated"
+
+
+def test_finalize_blank_operator_note_becomes_none(
+    monkeypatch,
+    outputs_dirs,
+):
+    json_dir, reports_dir = outputs_dirs
+    json_path, markdown_path, json_text, markdown_text = _artifact_texts(
+        json_dir,
+        reports_dir,
+    )
+    inspection = _complete_db_inspection(
+        json_path=str(json_path),
+        markdown_path=str(markdown_path),
+        json_content=json_text,
+        markdown_content=markdown_text,
+    )
+    _, _, mutate, _ = _patch_finalize_deps(monkeypatch, inspection)
+
+    for blank in ["", "   ", "\n\t"]:
+        mutate.reset_mock()
+        finalize_processing_reconciliation(
+            42,
+            expected_processing_check_id=TOKEN,
+            operator_note=blank,
+        )
+        assert mutate.call_args.kwargs["operator_note"] is None
+
+
+def test_finalize_oversized_operator_note_passed_through(
+    monkeypatch,
+    outputs_dirs,
+):
+    json_dir, reports_dir = outputs_dirs
+    json_path, markdown_path, json_text, markdown_text = _artifact_texts(
+        json_dir,
+        reports_dir,
+    )
+    inspection = _complete_db_inspection(
+        json_path=str(json_path),
+        markdown_path=str(markdown_path),
+        json_content=json_text,
+        markdown_content=markdown_text,
+    )
+    _, _, mutate, _ = _patch_finalize_deps(monkeypatch, inspection)
+
+    finalize_processing_reconciliation(
+        42,
+        expected_processing_check_id=TOKEN,
+        operator_note=OVERSIZED_OPERATOR_NOTE,
+    )
+    assert mutate.call_args.kwargs["operator_note"] == OVERSIZED_OPERATOR_NOTE
+    assert len(mutate.call_args.kwargs["operator_note"]) == 100_000
+
+
+def test_finalize_non_string_operator_note_rejected(monkeypatch):
+    for_token = MagicMock(side_effect=AssertionError("for_token must not run"))
+    monkeypatch.setattr(
+        service,
+        "get_processing_reconciliation_database_inspection_for_token",
+        for_token,
+    )
+    with pytest.raises(ProcessingReconciliationValidationError):
+        finalize_processing_reconciliation(
+            42,
+            expected_processing_check_id=TOKEN,
+            operator_note=123,  # type: ignore[arg-type]
+        )
+    for_token.assert_not_called()
+
+
+def test_finalize_already_processed_foreign_processing_owner_is_conflict(
+    monkeypatch,
+    outputs_dirs,
+):
+    json_dir, reports_dir = outputs_dirs
+    json_path, markdown_path, json_text, markdown_text = _artifact_texts(
+        json_dir,
+        reports_dir,
+    )
+    base = _complete_db_inspection(
+        status=CheckRequestStatus.processed,
+        processing_check_id=None,
+        company_check_id=TOKEN,
+        processing_started_at=None,
+        json_path=str(json_path),
+        markdown_path=str(markdown_path),
+        json_content=json_text,
+        markdown_content=markdown_text,
+    )
+    inspection = ProcessingReconciliationDatabaseInspection(
+        request=base.request,
+        database=base.database.model_copy(
+            update={"foreign_processing_token_request_ids": (99,)}
+        ),
+        token_company_checks=base.token_company_checks,
+        token_report_records=base.token_report_records,
+    )
+    _, _, mutate, audit = _patch_finalize_deps(
+        monkeypatch,
+        inspection,
+        audit_result=_finalize_result("conflict"),
+    )
+
+    result = finalize_processing_reconciliation(
+        42,
+        expected_processing_check_id=TOKEN,
+    )
+
+    assert result.outcome == "conflict"
+    mutate.assert_not_called()
+    audit.assert_called_once()
+    assert audit.call_args.kwargs["outcome"] == "conflict"
+
+
+def test_finalize_foreign_company_check_correlation_is_conflict(
+    monkeypatch,
+    outputs_dirs,
+):
+    json_dir, reports_dir = outputs_dirs
+    json_path, markdown_path, json_text, markdown_text = _artifact_texts(
+        json_dir,
+        reports_dir,
+    )
+    base = _complete_db_inspection(
+        status=CheckRequestStatus.processed,
+        processing_check_id=None,
+        company_check_id=TOKEN,
+        processing_started_at=None,
+        json_path=str(json_path),
+        markdown_path=str(markdown_path),
+        json_content=json_text,
+        markdown_content=markdown_text,
+    )
+    inspection = ProcessingReconciliationDatabaseInspection(
+        request=base.request,
+        database=base.database.model_copy(
+            update={"matching_company_check_source_request_ids": (99,)}
+        ),
+        token_company_checks=base.token_company_checks,
+        token_report_records=base.token_report_records,
+    )
+    _, _, mutate, audit = _patch_finalize_deps(
+        monkeypatch,
+        inspection,
+        audit_result=_finalize_result("conflict"),
+    )
+
+    result = finalize_processing_reconciliation(
+        42,
+        expected_processing_check_id=TOKEN,
+    )
+
+    assert result.outcome == "conflict"
+    mutate.assert_not_called()
+    audit.assert_called_once()
+    assert audit.call_args.kwargs["outcome"] == "conflict"
+
+
+def test_finalize_already_processed_with_started_at_is_precondition_failed(
+    monkeypatch,
+    outputs_dirs,
+):
+    json_dir, reports_dir = outputs_dirs
+    json_path, markdown_path, json_text, markdown_text = _artifact_texts(
+        json_dir,
+        reports_dir,
+    )
+    inspection = _complete_db_inspection(
+        status=CheckRequestStatus.processed,
+        processing_check_id=None,
+        company_check_id=TOKEN,
+        processing_started_at=STARTED_AT,
+        json_path=str(json_path),
+        markdown_path=str(markdown_path),
+        json_content=json_text,
+        markdown_content=markdown_text,
+    )
+    _, _, mutate, audit = _patch_finalize_deps(
+        monkeypatch,
+        inspection,
+        audit_result=_finalize_result("precondition_failed"),
+    )
+
+    result = finalize_processing_reconciliation(
+        42,
+        expected_processing_check_id=TOKEN,
+    )
+
+    assert result.outcome == "precondition_failed"
+    mutate.assert_not_called()
+    audit.assert_called_once()
+    assert audit.call_args.kwargs["outcome"] == "precondition_failed"
+
+
+def test_finalize_already_processed_missing_filesystem_is_precondition_failed(
+    monkeypatch,
+    outputs_dirs,
+):
+    json_dir, reports_dir = outputs_dirs
+    json_path = json_dir / f"company_check_{TOKEN}.json"
+    markdown_path = reports_dir / f"company_check_{TOKEN}.md"
+    inspection = _complete_db_inspection(
+        status=CheckRequestStatus.processed,
+        processing_check_id=None,
+        company_check_id=TOKEN,
+        processing_started_at=None,
+        json_path=str(json_path),
+        markdown_path=str(markdown_path),
+        json_content='{"check_id":"%s"}' % TOKEN,
+        markdown_content="# Report\n",
+    )
+    _, _, mutate, audit = _patch_finalize_deps(
+        monkeypatch,
+        inspection,
+        audit_result=_finalize_result("precondition_failed"),
+    )
+
+    result = finalize_processing_reconciliation(
+        42,
+        expected_processing_check_id=TOKEN,
+    )
+
+    assert result.outcome == "precondition_failed"
+    mutate.assert_not_called()
+    audit.assert_called_once()
+    assert audit.call_args.kwargs["outcome"] == "precondition_failed"
+
+
+def test_finalize_exact_already_processed_calls_mutating_once(
+    monkeypatch,
+    outputs_dirs,
+):
+    json_dir, reports_dir = outputs_dirs
+    json_path, markdown_path, json_text, markdown_text = _artifact_texts(
+        json_dir,
+        reports_dir,
+    )
+    inspection = _complete_db_inspection(
+        status=CheckRequestStatus.processed,
+        processing_check_id=None,
+        company_check_id=TOKEN,
+        processing_started_at=None,
+        json_path=str(json_path),
+        markdown_path=str(markdown_path),
+        json_content=json_text,
+        markdown_content=markdown_text,
+    )
+    _, _, mutate, audit = _patch_finalize_deps(
+        monkeypatch,
+        inspection,
+        mutate_result=_finalize_result("already_processed"),
+    )
+
+    result = finalize_processing_reconciliation(
+        42,
+        expected_processing_check_id=TOKEN,
+    )
+
+    assert result.outcome == "already_processed"
+    mutate.assert_called_once()
+    audit.assert_not_called()

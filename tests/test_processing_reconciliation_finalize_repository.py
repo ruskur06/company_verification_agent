@@ -24,6 +24,7 @@ from app.db.repositories import (
     REQUIRED_RECONCILIATION_TOOL_CALLS,
     ProcessingReconciliationFinalizeRequestNotFoundError,
     finalize_processing_reconciliation_request,
+    record_processing_reconciliation_audit_only,
 )
 
 
@@ -353,8 +354,48 @@ def test_company_check_linked_to_different_source_request(sqlite_db):
     _insert_company_check(sqlite_db, source_check_request_id=foreign)
     _insert_report(sqlite_db)
     _insert_required_tools(sqlite_db)
+    before = _load_request(sqlite_db, request_id)
     result = _finalize(request_id)
-    assert result.outcome == "precondition_failed"
+    assert result.outcome == "conflict"
+    assert _load_request(sqlite_db, request_id) == before
+    audits = _load_audits(sqlite_db, request_id)
+    assert len(audits) == 1
+    assert audits[0]["outcome"] == "conflict"
+    assert audits[0]["action"] == "finalize"
+    assert all(row["outcome"] != "finalized" for row in audits)
+
+
+def test_processing_with_foreign_company_check_source_is_conflict(sqlite_db):
+    foreign = _insert_request(
+        sqlite_db,
+        status="approved",
+        processing_check_id=None,
+        processing_started_at=None,
+    )
+    request_id = _insert_request(
+        sqlite_db,
+        status="processing",
+        company_check_id=None,
+        processing_check_id=TOKEN,
+        processing_started_at=STARTED_AT,
+    )
+    _insert_company_check(sqlite_db, source_check_request_id=foreign)
+    _insert_report(sqlite_db)
+    _insert_required_tools(sqlite_db)
+
+    before = _load_request(sqlite_db, request_id)
+    result = _finalize(request_id)
+
+    assert result.outcome == "conflict"
+    assert before["status"] == "processing"
+    assert before["processing_check_id"] == TOKEN
+    assert before["company_check_id"] is None
+    assert before["processing_started_at"] is not None
+    assert _load_request(sqlite_db, request_id) == before
+    audits = _load_audits(sqlite_db, request_id)
+    assert len(audits) == 1
+    assert audits[0]["outcome"] == "conflict"
+    assert all(row["outcome"] != "finalized" for row in audits)
 
 
 def test_duplicate_matching_company_check_blocked_by_schema(sqlite_db):
@@ -607,3 +648,330 @@ def test_successful_mutation_always_has_matching_audit(sqlite_db):
     assert audits[0]["outcome"] == "finalized"
     assert audits[0]["id"] == result.audit_id
     assert _load_request(sqlite_db, request_id)["status"] == "processed"
+
+
+def _seed_processed_complete(session_factory) -> int:
+    request_id = _seed_ready_request(session_factory)
+    result = _finalize(request_id)
+    assert result.outcome == "finalized"
+    return request_id
+
+
+def _audit_only(
+    request_id: int,
+    *,
+    outcome: str,
+    expected_processing_check_id: str = TOKEN,
+    operator_note: str | None = "note",
+):
+    return record_processing_reconciliation_audit_only(
+        request_id,
+        expected_processing_check_id=expected_processing_check_id,
+        outcome=outcome,
+        actor_label=ACTOR,
+        diagnosis_snapshot_json=SNAPSHOT,
+        operator_note=operator_note,
+        artifact_json_sha256=JSON_HASH,
+        artifact_markdown_sha256=MD_HASH,
+    )
+
+
+def test_processed_missing_company_check_is_precondition_failed(sqlite_db):
+    request_id = _insert_request(
+        sqlite_db,
+        status="processed",
+        company_check_id=TOKEN,
+        processing_check_id=None,
+        processing_started_at=None,
+    )
+    _insert_report(sqlite_db)
+    _insert_required_tools(sqlite_db)
+    result = _finalize(request_id)
+    assert result.outcome == "precondition_failed"
+    assert _load_request(sqlite_db, request_id)["status"] == "processed"
+    assert _load_request(sqlite_db, request_id)["company_check_id"] == TOKEN
+
+
+def test_processed_wrong_source_request_id_is_conflict(sqlite_db):
+    request_id = _insert_request(
+        sqlite_db,
+        status="processed",
+        company_check_id=TOKEN,
+        processing_check_id=None,
+        processing_started_at=None,
+    )
+    other_id = _insert_request(sqlite_db, processing_check_id=OTHER_TOKEN)
+    _insert_company_check(sqlite_db, source_check_request_id=other_id)
+    _insert_report(sqlite_db)
+    _insert_required_tools(sqlite_db)
+    before = _load_request(sqlite_db, request_id)
+    result = _finalize(request_id)
+    assert result.outcome == "conflict"
+    assert _load_request(sqlite_db, request_id) == before
+    audits = _load_audits(sqlite_db, request_id)
+    assert len(audits) == 1
+    assert audits[0]["outcome"] == "conflict"
+
+
+def test_processed_missing_report_is_precondition_failed(sqlite_db):
+    request_id = _insert_request(
+        sqlite_db,
+        status="processed",
+        company_check_id=TOKEN,
+        processing_check_id=None,
+        processing_started_at=None,
+    )
+    _insert_company_check(sqlite_db, source_check_request_id=request_id)
+    _insert_required_tools(sqlite_db)
+    result = _finalize(request_id)
+    assert result.outcome == "precondition_failed"
+
+
+def test_processed_duplicate_report_is_precondition_failed(sqlite_db):
+    request_id = _insert_request(
+        sqlite_db,
+        status="processed",
+        company_check_id=TOKEN,
+        processing_check_id=None,
+        processing_started_at=None,
+    )
+    _insert_company_check(sqlite_db, source_check_request_id=request_id)
+    _insert_report(sqlite_db)
+    _insert_report(sqlite_db)
+    _insert_required_tools(sqlite_db)
+    result = _finalize(request_id)
+    assert result.outcome == "precondition_failed"
+
+
+@pytest.mark.parametrize(
+    "tools",
+    [
+        ("web_search", "domain_dns_check", "registry_search"),
+        (
+            "web_search",
+            "domain_dns_check",
+            "registry_search",
+            "risk_score",
+            "risk_score",
+        ),
+        (
+            "web_search",
+            "domain_dns_check",
+            "registry_search",
+            "risk_score",
+            "mystery_tool",
+        ),
+        (
+            "web_search",
+            "domain_dns_check",
+            "registry_search",
+            "official_website_review",
+        ),
+    ],
+)
+def test_processed_bad_tool_evidence_is_precondition_failed(sqlite_db, tools):
+    request_id = _insert_request(
+        sqlite_db,
+        status="processed",
+        company_check_id=TOKEN,
+        processing_check_id=None,
+        processing_started_at=None,
+    )
+    _insert_company_check(sqlite_db, source_check_request_id=request_id)
+    _insert_report(sqlite_db)
+    _insert_required_tools(sqlite_db, tools=tools)
+    result = _finalize(request_id)
+    assert result.outcome == "precondition_failed"
+
+
+def test_processed_complete_evidence_returns_already_processed(sqlite_db):
+    request_id = _seed_processed_complete(sqlite_db)
+    before = _load_request(sqlite_db, request_id)
+    result = _finalize(request_id)
+    assert result.outcome == "already_processed"
+    record = _load_request(sqlite_db, request_id)
+    assert record == before
+    assert record["status"] == "processed"
+    assert record["company_check_id"] == TOKEN
+    assert record["processing_check_id"] is None
+    assert record["processing_started_at"] is None
+    audits = _load_audits(sqlite_db, request_id)
+    assert audits[-1]["outcome"] == "already_processed"
+
+
+def test_processed_same_token_with_foreign_processing_owner_is_conflict(
+    sqlite_db,
+):
+    request_id = _seed_processed_complete(sqlite_db)
+    _insert_request(
+        sqlite_db,
+        status="processing",
+        company_check_id=None,
+        processing_check_id=TOKEN,
+        processing_started_at=STARTED_AT,
+    )
+    before = _load_request(sqlite_db, request_id)
+    result = _finalize(request_id)
+    assert result.outcome == "conflict"
+    assert _load_request(sqlite_db, request_id) == before
+    assert _load_audits(sqlite_db, request_id)[-1]["outcome"] == "conflict"
+
+
+def test_processed_with_non_null_processing_check_id_is_precondition_failed(
+    sqlite_db,
+):
+    request_id = _seed_processed_complete(sqlite_db)
+    session = sqlite_db()
+    try:
+        record = (
+            session.query(CheckRequestRecord)
+            .filter(CheckRequestRecord.id == request_id)
+            .one()
+        )
+        record.processing_check_id = TOKEN
+        session.commit()
+    finally:
+        session.close()
+
+    before = _load_request(sqlite_db, request_id)
+    result = _finalize(request_id)
+    assert result.outcome == "precondition_failed"
+    assert _load_request(sqlite_db, request_id) == before
+    assert (
+        _load_audits(sqlite_db, request_id)[-1]["outcome"]
+        == "precondition_failed"
+    )
+
+
+def test_processed_with_non_null_processing_started_at_is_precondition_failed(
+    sqlite_db,
+):
+    request_id = _seed_processed_complete(sqlite_db)
+    session = sqlite_db()
+    try:
+        record = (
+            session.query(CheckRequestRecord)
+            .filter(CheckRequestRecord.id == request_id)
+            .one()
+        )
+        record.processing_started_at = STARTED_AT
+        session.commit()
+    finally:
+        session.close()
+
+    before = _load_request(sqlite_db, request_id)
+    result = _finalize(request_id)
+    assert result.outcome == "precondition_failed"
+    assert _load_request(sqlite_db, request_id) == before
+    assert (
+        _load_audits(sqlite_db, request_id)[-1]["outcome"]
+        == "precondition_failed"
+    )
+
+
+def test_audit_only_precondition_failed_persists_one_audit(sqlite_db):
+    request_id = _insert_request(sqlite_db)
+    before = _load_request(sqlite_db, request_id)
+    result = _audit_only(request_id, outcome="precondition_failed")
+    assert result.outcome == "precondition_failed"
+    assert result.audit_id > 0
+    after = _load_request(sqlite_db, request_id)
+    assert after == before
+    audits = _load_audits(sqlite_db, request_id)
+    assert len(audits) == 1
+    assert audits[0]["outcome"] == "precondition_failed"
+    assert audits[0]["action"] == "finalize"
+
+
+def test_audit_only_conflict_persists_one_audit(sqlite_db):
+    request_id = _insert_request(sqlite_db)
+    before = _load_request(sqlite_db, request_id)
+    result = _audit_only(request_id, outcome="conflict")
+    assert result.outcome == "conflict"
+    after = _load_request(sqlite_db, request_id)
+    assert after == before
+    audits = _load_audits(sqlite_db, request_id)
+    assert len(audits) == 1
+    assert audits[0]["outcome"] == "conflict"
+
+
+@pytest.mark.parametrize(
+    "outcome",
+    ["finalized", "already_processed", "unknown", "", "  ", None, 1],
+)
+def test_audit_only_rejects_invalid_outcomes(sqlite_db, outcome):
+    request_id = _insert_request(sqlite_db)
+    with pytest.raises(ValueError):
+        _audit_only(request_id, outcome=outcome)
+    assert _load_audits(sqlite_db, request_id) == []
+
+
+def test_audit_only_missing_request_raises_without_audit(sqlite_db):
+    with pytest.raises(ProcessingReconciliationFinalizeRequestNotFoundError):
+        _audit_only(40404, outcome="conflict")
+    session = sqlite_db()
+    try:
+        assert session.query(ReconciliationActionRecord).count() == 0
+    finally:
+        session.close()
+
+
+def test_audit_only_commit_failure_rolls_back(sqlite_db, monkeypatch):
+    request_id = _insert_request(sqlite_db)
+    from app.db import repositories as repo_mod
+
+    original_session_local = repo_mod.SessionLocal
+
+    def failing_session_local():
+        session = original_session_local()
+
+        def commit():
+            raise RuntimeError("audit commit failed")
+
+        session.commit = commit  # type: ignore[method-assign]
+        return session
+
+    monkeypatch.setattr(repo_mod, "SessionLocal", failing_session_local)
+    with pytest.raises(RuntimeError, match="audit commit failed"):
+        _audit_only(request_id, outcome="conflict")
+    assert _load_audits(sqlite_db, request_id) == []
+    assert _load_request(sqlite_db, request_id)["status"] == "processing"
+
+
+def test_audit_only_rollback_failure_preserves_original(sqlite_db, monkeypatch):
+    request_id = _insert_request(sqlite_db)
+    from app.db import repositories as repo_mod
+
+    original_session_local = repo_mod.SessionLocal
+
+    def failing_session_local():
+        session = original_session_local()
+
+        def commit():
+            raise RuntimeError("original audit commit failed")
+
+        def rollback():
+            raise RuntimeError("rollback also failed")
+
+        session.commit = commit  # type: ignore[method-assign]
+        session.rollback = rollback  # type: ignore[method-assign]
+        return session
+
+    monkeypatch.setattr(repo_mod, "SessionLocal", failing_session_local)
+    with pytest.raises(RuntimeError, match="original audit commit failed") as exc:
+        _audit_only(request_id, outcome="precondition_failed")
+    assert "rollback also failed" not in str(exc.value)
+    assert _load_audits(sqlite_db, request_id) == []
+
+
+def test_repeated_audit_only_creates_multiple_rows(sqlite_db):
+    request_id = _insert_request(sqlite_db)
+    first = _audit_only(request_id, outcome="conflict")
+    second = _audit_only(request_id, outcome="precondition_failed")
+    assert first.audit_id != second.audit_id
+    audits = _load_audits(sqlite_db, request_id)
+    assert len(audits) == 2
+    assert {row["outcome"] for row in audits} == {
+        "conflict",
+        "precondition_failed",
+    }

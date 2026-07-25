@@ -1,4 +1,4 @@
-"""UI tests for read-only processing reconciliation pages."""
+"""UI tests for processing reconciliation list, detail, and finalize routes."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.db import database
 from app.db.models import CheckRequestRecord
+from app.db.repositories import ProcessingReconciliationFinalizeResult
 from app.schemas.check_request import CheckRequestCreate, CheckRequestLanguage
 from app.schemas.processing_reconciliation import (
     ProcessingReconciliationDiagnosis,
@@ -22,6 +23,7 @@ from app.services.check_request_service import create_check_request
 from app.services.processing_reconciliation_service import (
     PROCESSING_RECONCILIATION_STALE_AFTER,
     ProcessingReconciliationRequestNotFoundError,
+    ProcessingReconciliationValidationError,
 )
 
 
@@ -90,6 +92,38 @@ def _create_processing_request(
         company_check_id=company_check_id,
     )
     return saved.id
+
+
+def _diagnosis(
+    request_id: int,
+    *,
+    classification: ReconciliationClassification,
+    processing_check_id: str | None = TOKEN,
+    reasons: tuple[str, ...] = (),
+) -> ProcessingReconciliationDiagnosis:
+    return ProcessingReconciliationDiagnosis(
+        request_id=request_id,
+        processing_check_id=processing_check_id,
+        classification=classification,
+        diagnosed_at=datetime(2026, 7, 21, 15, 0, 0, tzinfo=timezone.utc),
+        age_seconds=10800.0,
+        reasons=reasons,
+    )
+
+
+def _finalize_result(
+    request_id: int,
+    *,
+    outcome: str,
+    expected_processing_check_id: str = TOKEN,
+    audit_id: int = 1,
+) -> ProcessingReconciliationFinalizeResult:
+    return ProcessingReconciliationFinalizeResult(
+        outcome=outcome,
+        request_id=request_id,
+        expected_processing_check_id=expected_processing_check_id,
+        audit_id=audit_id,
+    )
 
 
 def test_reconciliation_list_returns_200(sqlite_db, client):
@@ -302,9 +336,14 @@ def test_reconciliation_detail_renders_diagnosis(sqlite_db, client, monkeypatch)
     assert "missing_artifacts" in text
     assert "another_reason" in text
     assert "30 minutes" in text
+    normalized = " ".join(text.lower().split())
+    assert "tailnet" in normalized
+    assert "fresh verification" in normalized
+    assert "authentication" not in normalized
     assert "json_path" not in text
     assert "sha256" not in text
     assert "snapshot" not in text.lower()
+    assert "<form" not in text.lower()
 
 
 def test_reconciliation_detail_no_reasons_fallback(sqlite_db, client, monkeypatch):
@@ -493,3 +532,425 @@ def test_stale_after_constant_is_thirty_minutes():
     assert reconciliation_service.PROCESSING_RECONCILIATION_STALE_AFTER == (
         timedelta(minutes=30)
     )
+
+
+def test_reconciliation_detail_shows_finalize_form_for_stale_persisted_complete(
+    sqlite_db,
+    client,
+    monkeypatch,
+):
+    request_id = _create_processing_request(sqlite_db)
+    monkeypatch.setattr(
+        "app.main.diagnose_processing_reconciliation",
+        MagicMock(
+            return_value=_diagnosis(
+                request_id,
+                classification=(
+                    ReconciliationClassification.stale_persisted_complete
+                ),
+            )
+        ),
+    )
+    response = client.get(f"/internal/reconciliation/{request_id}")
+    text = response.text
+    assert response.status_code == 200
+    assert "<form" in text.lower()
+    assert 'method="post"' in text.lower()
+    assert (
+        f'action="/internal/reconciliation/{request_id}/finalize"' in text
+    )
+    assert 'name="expected_processing_check_id"' in text
+    assert f'value="{TOKEN}"' in text
+    assert 'name="operator_note"' in text
+    assert "Operator note (optional)" in text
+    assert "Finalize request" in text
+    normalized = " ".join(text.lower().split())
+    assert "tailnet" in normalized
+    assert "fresh verification" in normalized
+
+
+@pytest.mark.parametrize(
+    "classification",
+    [
+        member
+        for member in ReconciliationClassification
+        if member is not ReconciliationClassification.stale_persisted_complete
+    ],
+)
+def test_reconciliation_detail_hides_form_for_other_classifications(
+    sqlite_db,
+    client,
+    monkeypatch,
+    classification: ReconciliationClassification,
+):
+    request_id = _create_processing_request(sqlite_db)
+    monkeypatch.setattr(
+        "app.main.diagnose_processing_reconciliation",
+        MagicMock(
+            return_value=_diagnosis(
+                request_id,
+                classification=classification,
+            )
+        ),
+    )
+    response = client.get(f"/internal/reconciliation/{request_id}")
+    text = response.text
+    assert response.status_code == 200
+    assert classification.value in text
+    assert "<form" not in text.lower()
+    assert 'method="post"' not in text.lower()
+    assert "Finalize request" not in text
+
+
+def test_reconciliation_detail_hides_form_without_processing_check_id(
+    sqlite_db,
+    client,
+    monkeypatch,
+):
+    request_id = _create_processing_request(
+        sqlite_db,
+        processing_check_id=None,
+    )
+    monkeypatch.setattr(
+        "app.main.diagnose_processing_reconciliation",
+        MagicMock(
+            return_value=_diagnosis(
+                request_id,
+                classification=(
+                    ReconciliationClassification.stale_persisted_complete
+                ),
+                processing_check_id=None,
+            )
+        ),
+    )
+    response = client.get(f"/internal/reconciliation/{request_id}")
+    text = response.text
+    assert response.status_code == 200
+    assert "stale_persisted_complete" in text
+    assert "<form" not in text.lower()
+    assert "Finalize request" not in text
+
+
+@pytest.mark.parametrize(
+    "error_reason",
+    list(ReconciliationDiagnosisErrorReason),
+)
+def test_reconciliation_detail_hides_form_for_diagnosis_errors(
+    sqlite_db,
+    client,
+    monkeypatch,
+    error_reason: ReconciliationDiagnosisErrorReason,
+):
+    request_id = _create_processing_request(sqlite_db)
+    monkeypatch.setattr(
+        "app.main.diagnose_processing_reconciliation",
+        MagicMock(
+            return_value=ProcessingReconciliationDiagnosisError(
+                request_id=request_id,
+                processing_check_id=TOKEN,
+                reason=error_reason,
+                detail="inspection failed",
+                diagnosed_at=datetime(
+                    2026, 7, 21, 15, 0, 0, tzinfo=timezone.utc
+                ),
+            )
+        ),
+    )
+    response = client.get(f"/internal/reconciliation/{request_id}")
+    text = response.text
+    assert response.status_code == 200
+    assert error_reason.value in text
+    assert "<form" not in text.lower()
+    assert "Finalize request" not in text
+
+
+def test_reconciliation_finalize_calls_service_once_with_submitted_fields(
+    sqlite_db,
+    client,
+    monkeypatch,
+):
+    request_id = _create_processing_request(sqlite_db)
+    finalize = MagicMock(
+        return_value=_finalize_result(request_id, outcome="finalized")
+    )
+    monkeypatch.setattr(
+        "app.main.finalize_processing_reconciliation",
+        finalize,
+    )
+    response = client.post(
+        f"/internal/reconciliation/{request_id}/finalize",
+        data={
+            "expected_processing_check_id": TOKEN,
+            "operator_note": "ops note",
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    finalize.assert_called_once_with(
+        request_id,
+        expected_processing_check_id=TOKEN,
+        operator_note="ops note",
+    )
+
+
+def test_reconciliation_finalize_uses_manually_submitted_token(
+    sqlite_db,
+    client,
+    monkeypatch,
+):
+    request_id = _create_processing_request(sqlite_db)
+    submitted_token = "1782245999888"
+    finalize = MagicMock(
+        return_value=_finalize_result(
+            request_id,
+            outcome="finalized",
+            expected_processing_check_id=submitted_token,
+        )
+    )
+    monkeypatch.setattr(
+        "app.main.finalize_processing_reconciliation",
+        finalize,
+    )
+    response = client.post(
+        f"/internal/reconciliation/{request_id}/finalize",
+        data={
+            "expected_processing_check_id": submitted_token,
+            "operator_note": "manual token",
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    assert response.headers["location"] == (
+        f"/internal/result/{submitted_token}"
+    )
+    finalize.assert_called_once_with(
+        request_id,
+        expected_processing_check_id=submitted_token,
+        operator_note="manual token",
+    )
+
+
+@pytest.mark.parametrize(
+    "outcome",
+    ["finalized", "already_processed"],
+)
+def test_reconciliation_finalize_success_redirects_to_result(
+    sqlite_db,
+    client,
+    monkeypatch,
+    outcome: str,
+):
+    request_id = _create_processing_request(sqlite_db)
+    monkeypatch.setattr(
+        "app.main.finalize_processing_reconciliation",
+        MagicMock(
+            return_value=_finalize_result(request_id, outcome=outcome)
+        ),
+    )
+    response = client.post(
+        f"/internal/reconciliation/{request_id}/finalize",
+        data={"expected_processing_check_id": TOKEN},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    assert response.headers["location"] == f"/internal/result/{TOKEN}"
+
+
+@pytest.mark.parametrize(
+    ("outcome", "query"),
+    [
+        ("conflict", "conflict"),
+        ("precondition_failed", "precondition_failed"),
+    ],
+)
+def test_reconciliation_finalize_non_success_redirects_to_detail_outcome(
+    sqlite_db,
+    client,
+    monkeypatch,
+    outcome: str,
+    query: str,
+):
+    request_id = _create_processing_request(sqlite_db)
+    monkeypatch.setattr(
+        "app.main.finalize_processing_reconciliation",
+        MagicMock(
+            return_value=_finalize_result(request_id, outcome=outcome)
+        ),
+    )
+    response = client.post(
+        f"/internal/reconciliation/{request_id}/finalize",
+        data={"expected_processing_check_id": TOKEN},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    assert response.headers["location"] == (
+        f"/internal/reconciliation/{request_id}?outcome={query}"
+    )
+
+
+def test_reconciliation_finalize_not_found_is_404(
+    sqlite_db,
+    client,
+    monkeypatch,
+):
+    request_id = _create_processing_request(sqlite_db)
+    monkeypatch.setattr(
+        "app.main.finalize_processing_reconciliation",
+        MagicMock(
+            side_effect=ProcessingReconciliationRequestNotFoundError(
+                request_id
+            )
+        ),
+    )
+    response = client.post(
+        f"/internal/reconciliation/{request_id}/finalize",
+        data={"expected_processing_check_id": TOKEN},
+        follow_redirects=False,
+    )
+    assert response.status_code == 404
+    assert "was not found for reconciliation" not in response.text
+
+
+def test_reconciliation_finalize_validation_error_is_422(
+    sqlite_db,
+    client,
+    monkeypatch,
+):
+    request_id = _create_processing_request(sqlite_db)
+    monkeypatch.setattr(
+        "app.main.finalize_processing_reconciliation",
+        MagicMock(
+            side_effect=ProcessingReconciliationValidationError(
+                "expected_processing_check_id must be a canonical "
+                "processing check id"
+            )
+        ),
+    )
+    response = client.post(
+        f"/internal/reconciliation/{request_id}/finalize",
+        data={"expected_processing_check_id": "not-a-token"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 422
+
+
+def test_reconciliation_finalize_unexpected_exception_propagates(
+    sqlite_db,
+    client,
+    monkeypatch,
+):
+    request_id = _create_processing_request(sqlite_db)
+    monkeypatch.setattr(
+        "app.main.finalize_processing_reconciliation",
+        MagicMock(side_effect=RuntimeError("boom")),
+    )
+    with pytest.raises(RuntimeError, match="boom"):
+        client.post(
+            f"/internal/reconciliation/{request_id}/finalize",
+            data={"expected_processing_check_id": TOKEN},
+            follow_redirects=False,
+        )
+
+
+def test_reconciliation_outcome_messages_fixed_and_escaped(
+    sqlite_db,
+    client,
+    monkeypatch,
+):
+    request_id = _create_processing_request(sqlite_db)
+    monkeypatch.setattr(
+        "app.main.diagnose_processing_reconciliation",
+        MagicMock(
+            return_value=_diagnosis(
+                request_id,
+                classification=(
+                    ReconciliationClassification.within_processing_window
+                ),
+            )
+        ),
+    )
+    conflict = client.get(
+        f"/internal/reconciliation/{request_id}?outcome=conflict"
+    )
+    assert conflict.status_code == 200
+    assert "another processing attempt" in conflict.text
+    assert "or result currently owns this request" in conflict.text
+
+    precondition = client.get(
+        f"/internal/reconciliation/{request_id}"
+        "?outcome=precondition_failed"
+    )
+    assert precondition.status_code == 200
+    assert "satisfy finalize preconditions" in precondition.text
+
+    arbitrary = client.get(
+        f"/internal/reconciliation/{request_id}?outcome=made_up"
+    )
+    assert arbitrary.status_code == 200
+    assert "another processing attempt" not in arbitrary.text
+    assert "satisfy finalize preconditions" not in arbitrary.text
+    assert "made_up" not in arbitrary.text
+
+    xss_payload = '<script>alert("x")</script>'
+    xss = client.get(
+        f"/internal/reconciliation/{request_id}?outcome={xss_payload}"
+    )
+    assert xss.status_code == 200
+    assert xss_payload not in xss.text
+    assert "another processing attempt" not in xss.text
+
+
+def test_reconciliation_finalize_hides_raw_internals_in_redirect(
+    sqlite_db,
+    client,
+    monkeypatch,
+):
+    request_id = _create_processing_request(sqlite_db)
+    monkeypatch.setattr(
+        "app.main.finalize_processing_reconciliation",
+        MagicMock(
+            return_value=_finalize_result(
+                request_id,
+                outcome="conflict",
+            )
+        ),
+    )
+    response = client.post(
+        f"/internal/reconciliation/{request_id}/finalize",
+        data={"expected_processing_check_id": TOKEN},
+        follow_redirects=False,
+    )
+    location = response.headers["location"]
+    assert response.status_code == 303
+    assert location == (
+        f"/internal/reconciliation/{request_id}?outcome=conflict"
+    )
+    assert "sha256" not in location.lower()
+    assert "snapshot" not in location.lower()
+    assert "json_path" not in location.lower()
+    assert "/tmp/" not in location
+    assert "Traceback" not in location
+    assert "Exception" not in location
+
+
+@pytest.mark.parametrize(
+    "method",
+    ["put", "patch", "delete"],
+)
+def test_reconciliation_finalize_rejects_non_post_mutations(
+    sqlite_db,
+    client,
+    method: str,
+):
+    response = getattr(client, method)(
+        "/internal/reconciliation/1/finalize"
+    )
+    assert response.status_code == 405
+
+
+def test_reconciliation_finalize_rejects_get(
+    sqlite_db,
+    client,
+):
+    response = client.get("/internal/reconciliation/1/finalize")
+    assert response.status_code == 405
