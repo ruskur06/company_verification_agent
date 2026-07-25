@@ -17,11 +17,10 @@
             </div>
 
             <p class="muted">
-                Read-only advisory view of CheckRequest rows currently in
-                <code>processing</code> status. This page does not mutate
-                database state, finalize stuck requests, or clean up
-                artifacts. Authentication and access control are required
-                before deploying these internal pages.
+                Internal tailnet-only advisory view of CheckRequest rows
+                currently in <code>processing</code> status. This page does
+                not mutate database state, finalize stuck requests, or clean
+                up artifacts.
             </p>
 
             {% if requests %}

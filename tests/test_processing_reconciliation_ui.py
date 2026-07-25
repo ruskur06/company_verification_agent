@@ -129,6 +129,10 @@ def _finalize_result(
 def test_reconciliation_list_returns_200(sqlite_db, client):
     response = client.get("/internal/reconciliation")
     assert response.status_code == 200
+
+    normalized = " ".join(response.text.lower().split())
+    assert "internal tailnet-only advisory view" in normalized
+    assert "authentication and access control are required" not in normalized
     assert "Processing Reconciliation" in response.text
 
 
@@ -296,7 +300,8 @@ def test_reconciliation_list_has_no_forms_and_noindex(sqlite_db, client):
     assert 'content="noindex, nofollow"' in text
     assert 'href="/internal/requests"' in text
     assert 'href="/internal/checks"' in text
-    assert "access control" in text.lower() or "Authentication" in text
+    assert "internal tailnet-only advisory view" in text.lower()
+    assert "authentication and access control are required" not in text.lower()
 
 
 def test_reconciliation_list_escapes_unsafe_company_name(sqlite_db, client):
